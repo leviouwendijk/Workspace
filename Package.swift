@@ -1,27 +1,78 @@
 // swift-tools-version: 6.3
-// The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
     name: "Workspace",
+    platforms: [
+        .macOS(.v13),
+    ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "Workspace",
-            targets: ["Workspace"]
+            targets: [
+                "Workspace",
+            ]
+        ),
+        .executable(
+            name: "wtest",
+            targets: [
+                "WorkspaceTests",
+            ]
+        ),
+    ],
+    dependencies: [
+        .package(
+            url: "https://github.com/leviouwendijk/Path.git",
+            branch: "master"
+        ),
+        .package(
+            url: "https://github.com/leviouwendijk/Position.git",
+            branch: "master"
+        ),
+        .package(
+            url: "https://github.com/leviouwendijk/Selection.git",
+            branch: "master"
         ),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "Workspace"
+            name: "Workspace",
+            dependencies: [
+                .product(
+                    name: "Path",
+                    package: "Path"
+                ),
+                .product(
+                    name: "Position",
+                    package: "Position"
+                ),
+                .product(
+                    name: "Selection",
+                    package: "Selection"
+                ),
+            ]
         ),
-        .testTarget(
+        .executableTarget(
             name: "WorkspaceTests",
-            dependencies: ["Workspace"]
+            dependencies: [
+                "Workspace",
+                .product(
+                    name: "Path",
+                    package: "Path"
+                ),
+                .product(
+                    name: "Position",
+                    package: "Position"
+                ),
+                .product(
+                    name: "Selection",
+                    package: "Selection"
+                ),
+            ]
         ),
     ],
-    swiftLanguageModes: [.v6]
+    swiftLanguageModes: [
+        .v6,
+    ]
 )
