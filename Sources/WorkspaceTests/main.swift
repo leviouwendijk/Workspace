@@ -127,19 +127,52 @@ func workspaceAuthorityHardening() throws {
         ]
     )
 
-    try expect(
-        workspace.rootURL == projectURL.standardizedFileURL,
-        "workspace exposes the default root URL"
-    )
-
     let projectLocation = try workspace.location(
         ".",
         rootIdentifier: projectID
     )
 
     try expect(
+        projectLocation.rootIdentifier == projectID,
+        "workspace location retains the root actually selected by Path authority"
+    )
+    try expect(
         projectLocation.absoluteURL == projectURL.standardizedFileURL,
         "workspace resolves a typed location through Path authority"
+    )
+
+    let defaultLocation = try workspace.location(
+        "."
+    )
+
+    try expect(
+        defaultLocation.rootIdentifier == projectID,
+        "workspace location records the resolved default root when no root is explicitly supplied"
+    )
+
+    let projectContext = try workspace.context(
+        at: ".",
+        rootIdentifier: projectID
+    )
+
+    try expect(
+        projectContext.workspace == workspace,
+        "workspace context exposes the authority snapshot used for an invocation"
+    )
+    try expect(
+        projectContext.location == projectLocation,
+        "workspace context exposes the resolved invocation location alongside its authority snapshot"
+    )
+
+    let unlocatedContext = workspace.context()
+
+    try expect(
+        unlocatedContext.workspace == workspace,
+        "workspace can expose an authority context before an execution location is selected"
+    )
+    try expect(
+        unlocatedContext.location == nil,
+        "an unlocated workspace context does not invent a default execution target"
     )
 
     let initialAuthorization = try workspace.authorize(

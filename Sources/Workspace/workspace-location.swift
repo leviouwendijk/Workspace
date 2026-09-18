@@ -6,31 +6,22 @@ public struct WorkspaceLocation:
     Codable,
     Hashable
 {
+    public let rootIdentifier: PathAccessRootIdentifier
     public let path: DescendantPath
     public let absoluteURL: URL
 
-    public init(
+    init(
+        rootIdentifier: PathAccessRootIdentifier,
         path: DescendantPath,
         absoluteURL: URL
     ) {
+        self.rootIdentifier = rootIdentifier
         self.path = path
         self.absoluteURL = absoluteURL.standardizedFileURL
     }
 }
 
 public extension Workspace {
-    var rootURL: URL? {
-        guard let defaultRootIdentifier,
-              let root = root(
-                identifier: defaultRootIdentifier
-              )
-        else {
-            return nil
-        }
-
-        return root.rootURL
-    }
-
     func location(
         _ rawPath: String,
         rootIdentifier: PathAccessRootIdentifier? = nil
@@ -42,6 +33,7 @@ public extension Workspace {
         )
 
         return WorkspaceLocation(
+            rootIdentifier: authorized.rootIdentifier,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL
         )
@@ -58,6 +50,7 @@ public extension Workspace {
         )
 
         return WorkspaceLocation(
+            rootIdentifier: authorized.rootIdentifier,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL
         )
