@@ -6,18 +6,36 @@ import Readers
 public struct Workspace: Sendable, Codable, Hashable {
     var paths: PathAccessController
     private var grantRecords: [WorkspaceGrantIdentifier: WorkspaceGrantRecord]
-    private var registrationRecords: [WorkspaceRegistrationIdentifier: WorkspaceRegistrationRecord]
+    private var registrationRecords: [WorkspaceRegistration: WorkspaceRegistrationRecord]
 
     public private(set) var revision: WorkspaceRevision
 
     public init(
-        roots: [PathAccessRoot] = [],
-        defaultRootIdentifier: PathAccessRootIdentifier? = nil,
+        root: PathAccessRoot,
         grants: [WorkspaceGrant] = []
     ) throws {
         try self.init(
+            roots: [root],
+            defaultRootIdentifier: root.id,
+            grants: grants
+        )
+    }
+
+    public init(
+        roots: [PathAccessRoot],
+        defaultRootIdentifier: PathAccessRootIdentifier? = nil,
+        grants: [WorkspaceGrant] = []
+    ) throws {
+        guard !roots.isEmpty else {
+            throw WorkspaceError.empty_roots
+        }
+
+        let resolvedDefaultRootIdentifier = defaultRootIdentifier
+            ?? (roots.count == 1 ? roots[0].id : nil)
+
+        try self.init(
             roots: roots,
-            defaultRootIdentifier: defaultRootIdentifier,
+            defaultRootIdentifier: resolvedDefaultRootIdentifier,
             grants: grants.map {
                 WorkspaceGrantRecord(
                     grant: $0,
@@ -36,6 +54,10 @@ public struct Workspace: Sendable, Codable, Hashable {
         registrations: [WorkspaceRegistrationRecord],
         revision: WorkspaceRevision
     ) throws {
+        guard !roots.isEmpty else {
+            throw WorkspaceError.empty_roots
+        }
+
         var rootIdentifiers: Set<PathAccessRootIdentifier> = []
 
         for root in roots {
@@ -59,7 +81,7 @@ public struct Workspace: Sendable, Codable, Hashable {
             defaultRootIdentifier: defaultRootIdentifier
         )
         var mappedGrants: [WorkspaceGrantIdentifier: WorkspaceGrantRecord] = [:]
-        var mappedRegistrations: [WorkspaceRegistrationIdentifier: WorkspaceRegistrationRecord] = [:]
+        var mappedRegistrations: [WorkspaceRegistration: WorkspaceRegistrationRecord] = [:]
 
         for record in grants {
             let identifier = record.grant.id
@@ -83,16 +105,16 @@ public struct Workspace: Sendable, Codable, Hashable {
         }
 
         for record in registrations {
-            let identifier = record.registration.id
+            let registration = record.registration
 
-            guard mappedRegistrations[identifier] == nil else {
+            guard mappedRegistrations[registration] == nil else {
                 throw WorkspaceError.registration_not_active(
-                    identifier
+                    registration
                 )
             }
 
             if case .active = record.state {
-                for rootIdentifier in record.registration.roots {
+                for rootIdentifier in record.roots {
                     guard paths.roots[rootIdentifier] != nil else {
                         throw WorkspaceError.root_not_found(
                             rootIdentifier
@@ -101,7 +123,7 @@ public struct Workspace: Sendable, Codable, Hashable {
                 }
             }
 
-            mappedRegistrations[identifier] = record
+            mappedRegistrations[registration] = record
         }
 
         try Self.requireConsistency(
@@ -171,11 +193,15 @@ public struct Workspace: Sendable, Codable, Hashable {
             forKey: .defaultRootIdentifier
         )
         try container.encode(
-            grants,
+            grantRecords.values.sorted {
+                $0.grant.id.rawValue < $1.grant.id.rawValue
+            },
             forKey: .grants
         )
         try container.encode(
-            registrations,
+            registrationRecords.values.sorted {
+                $0.registration.rawValue.uuidString < $1.registration.rawValue.uuidString
+            },
             forKey: .registrations
         )
         try container.encode(
@@ -200,34 +226,10 @@ public extension Workspace {
         paths.defaultRootIdentifier
     }
 
-    var grants: [WorkspaceGrantRecord] {
-        grantRecords.values.sorted {
-            $0.grant.id.rawValue < $1.grant.id.rawValue
-        }
-    }
-
-    var registrations: [WorkspaceRegistrationRecord] {
-        registrationRecords.values.sorted {
-            $0.registration.id.description < $1.registration.id.description
-        }
-    }
-
     func root(
         identifier: PathAccessRootIdentifier
     ) -> PathAccessRoot? {
         paths.roots[identifier]
-    }
-
-    func grant(
-        identifier: WorkspaceGrantIdentifier
-    ) -> WorkspaceGrantRecord? {
-        grantRecords[identifier]
-    }
-
-    func registration(
-        identifier: WorkspaceRegistrationIdentifier
-    ) -> WorkspaceRegistrationRecord? {
-        registrationRecords[identifier]
     }
 
     func status(
@@ -277,7 +279,7 @@ public extension Workspace {
         }
 
         let candidateRevision = try revision.advanced()
-        let registrationIdentifier = WorkspaceRegistrationIdentifier()
+        let registration = WorkspaceRegistration()
         var candidatePaths = paths
         var candidateGrants = grantRecords
         var candidateRegistrations = registrationRecords
@@ -323,14 +325,11 @@ public extension Workspace {
             }
         }
 
-        let registration = WorkspaceRegistration(
-            id: registrationIdentifier,
+        candidateRegistrations[registration] = WorkspaceRegistrationRecord(
+            registration: registration,
             roots: installedRoots,
             grants: installedGrants,
-            revision: candidateRevision
-        )
-        candidateRegistrations[registrationIdentifier] = WorkspaceRegistrationRecord(
-            registration: registration,
+            revision: candidateRevision,
             state: .active
         )
 
@@ -371,18 +370,7 @@ public extension Workspace {
     }
 
     @discardableResult
-    mutating func removeRoot(
-        _ identifier: PathAccessRootIdentifier
-    ) throws -> WorkspaceRevision {
-        try update { update in
-            update.removeRoot(
-                identifier
-            )
-        }
-    }
-
-    @discardableResult
-    mutating func update(
+    private mutating func update(
         _ body: (inout WorkspaceUpdate) throws -> Void
     ) throws -> WorkspaceRevision {
         var update = WorkspaceUpdate()
@@ -403,8 +391,13 @@ public extension Workspace {
         for operation in update.operations {
             switch operation {
             case .replace_grant(let grant):
-                guard candidateGrants[grant.id] != nil else {
+                guard let existing = candidateGrants[grant.id] else {
                     throw WorkspaceError.grant_not_found(
+                        grant.id
+                    )
+                }
+                guard case .active = existing.state else {
+                    throw WorkspaceError.grant_not_active(
                         grant.id
                     )
                 }
@@ -439,23 +432,6 @@ public extension Workspace {
                     )
                 )
                 changed = true
-
-            case .remove_root(let identifier):
-                guard candidatePaths.roots[identifier] != nil else {
-                    throw WorkspaceError.root_not_found(
-                        identifier
-                    )
-                }
-
-                try Self.requireRootRemovable(
-                    identifier,
-                    grants: candidateGrants,
-                    registrations: candidateRegistrations
-                )
-                candidatePaths = candidatePaths.removingRoot(
-                    identifier: identifier
-                )
-                changed = true
             }
         }
 
@@ -486,23 +462,14 @@ public extension Workspace {
     mutating func invalidate(
         _ registration: WorkspaceRegistration
     ) throws -> WorkspaceRevision {
-        try invalidate(
-            registration.id
-        )
-    }
-
-    @discardableResult
-    mutating func invalidate(
-        _ identifier: WorkspaceRegistrationIdentifier
-    ) throws -> WorkspaceRevision {
-        guard let existing = registrationRecords[identifier] else {
+        guard let existing = registrationRecords[registration] else {
             throw WorkspaceError.registration_not_found(
-                identifier
+                registration
             )
         }
         guard case .active = existing.state else {
             throw WorkspaceError.registration_not_active(
-                identifier
+                registration
             )
         }
 
@@ -511,7 +478,7 @@ public extension Workspace {
         var candidateGrants = grantRecords
         var candidateRegistrations = registrationRecords
 
-        for grantIdentifier in existing.registration.grants {
+        for grantIdentifier in existing.grants {
             guard let grantRecord = candidateGrants[grantIdentifier],
                   case .active = grantRecord.state
             else {
@@ -526,8 +493,11 @@ public extension Workspace {
             )
         }
 
-        candidateRegistrations[identifier] = WorkspaceRegistrationRecord(
+        candidateRegistrations[registration] = WorkspaceRegistrationRecord(
             registration: existing.registration,
+            roots: existing.roots,
+            grants: existing.grants,
+            revision: existing.revision,
             state: .invalidated(
                 candidateRevision
             )
@@ -611,19 +581,28 @@ public extension Workspace {
 
 public extension Workspace {
     func authorize(
-        _ request: WorkspaceAuthorizationRequest,
+        _ path: String,
+        rootIdentifier: PathAccessRootIdentifier? = nil,
+        capability: WorkspaceCapability,
+        lineRange: LineRange? = nil,
+        sourceSnapshot: FileReadSnapshot? = nil,
         at date: Date = Date()
     ) throws -> WorkspaceAuthorization {
+        try requireValidAuthorizationShape(
+            capability: capability,
+            lineRange: lineRange
+        )
+
         let authorizedPath = try paths.authorize(
-            request.path,
-            rootIdentifier: request.rootIdentifier
+            path,
+            rootIdentifier: rootIdentifier
         )
 
         return try authorization(
             for: authorizedPath,
-            capability: request.capability,
-            lineRange: request.lineRange,
-            sourceSnapshot: request.sourceSnapshot,
+            capability: capability,
+            lineRange: lineRange,
+            sourceSnapshot: sourceSnapshot,
             at: date
         )
     }
@@ -636,13 +615,10 @@ public extension Workspace {
         sourceSnapshot: FileReadSnapshot? = nil,
         at date: Date = Date()
     ) throws -> WorkspaceAuthorization {
-        if lineRange != nil,
-           !capability.supportsContentRange
-        {
-            throw WorkspaceError.invalid_line_range_capability(
-                capability
-            )
-        }
+        try requireValidAuthorizationShape(
+            capability: capability,
+            lineRange: lineRange
+        )
 
         let authorizedPath = try paths.authorize(
             path,
@@ -729,6 +705,19 @@ public extension Workspace {
 }
 
 private extension Workspace {
+    func requireValidAuthorizationShape(
+        capability: WorkspaceCapability,
+        lineRange: LineRange?
+    ) throws {
+        if lineRange != nil,
+           !capability.supportsContentRange
+        {
+            throw WorkspaceError.invalid_line_range_capability(
+                capability
+            )
+        }
+    }
+
     func sourceSnapshotForReauthorization(
         _ authorization: WorkspaceAuthorization,
         currentSourceSnapshot: FileReadSnapshot?
@@ -786,7 +775,7 @@ private extension Workspace {
                 authorizedPath: authorizedPath,
                 capability: capability,
                 lineRange: lineRange,
-                sourceSnapshot: sourceSnapshot,
+                sourceSnapshot: record.grant.scope.sourceSnapshot,
                 grantIdentifier: record.grant.id,
                 revision: revision
             )
@@ -830,61 +819,15 @@ private extension Workspace {
         }
     }
 
-    static func requireRootRemovable(
-        _ identifier: PathAccessRootIdentifier,
-        grants: [WorkspaceGrantIdentifier: WorkspaceGrantRecord],
-        registrations: [WorkspaceRegistrationIdentifier: WorkspaceRegistrationRecord]
-    ) throws {
-        let activeGrants = grants.values.compactMap { record -> WorkspaceGrantIdentifier? in
-            guard case .active = record.state,
-                  record.grant.rootIdentifier == identifier
-            else {
-                return nil
-            }
-
-            return record.grant.id
-        }
-        .sorted {
-            $0.rawValue < $1.rawValue
-        }
-
-        guard activeGrants.isEmpty else {
-            throw WorkspaceError.root_has_active_grants(
-                root: identifier,
-                grants: activeGrants
-            )
-        }
-
-        let activeRegistrations = registrations.values.compactMap { record -> WorkspaceRegistrationIdentifier? in
-            guard case .active = record.state,
-                  record.registration.roots.contains(identifier)
-            else {
-                return nil
-            }
-
-            return record.registration.id
-        }
-        .sorted {
-            $0.description < $1.description
-        }
-
-        guard activeRegistrations.isEmpty else {
-            throw WorkspaceError.root_has_active_registrations(
-                root: identifier,
-                registrations: activeRegistrations
-            )
-        }
-    }
-
     static func reclaimInactiveRegistrationRoots(
         paths: PathAccessController,
         grants: [WorkspaceGrantIdentifier: WorkspaceGrantRecord],
-        registrations: [WorkspaceRegistrationIdentifier: WorkspaceRegistrationRecord]
+        registrations: [WorkspaceRegistration: WorkspaceRegistrationRecord]
     ) -> PathAccessController {
         var paths = paths
         let registrationOwnedRoots = Set(
             registrations.values.flatMap {
-                $0.registration.roots
+                $0.roots
             }
         )
 
@@ -905,7 +848,7 @@ private extension Workspace {
                     return false
                 }
 
-                return record.registration.roots.contains(
+                return record.roots.contains(
                     identifier
                 )
             }
@@ -959,7 +902,7 @@ private extension Workspace {
     static func requireConsistency(
         paths: PathAccessController,
         grants: [WorkspaceGrantIdentifier: WorkspaceGrantRecord],
-        registrations: [WorkspaceRegistrationIdentifier: WorkspaceRegistrationRecord]
+        registrations: [WorkspaceRegistration: WorkspaceRegistrationRecord]
     ) throws {
         for (identifier, record) in grants {
             guard identifier == record.grant.id else {
@@ -988,7 +931,7 @@ private extension Workspace {
                 continue
             }
 
-            for identifier in record.registration.roots {
+            for identifier in record.roots {
                 guard paths.roots[identifier] != nil else {
                     throw WorkspaceError.root_not_found(
                         identifier

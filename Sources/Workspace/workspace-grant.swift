@@ -117,7 +117,7 @@ public struct WorkspaceRevision:
     }
 }
 
-public enum WorkspaceGrantState:
+enum WorkspaceGrantState:
     Sendable,
     Codable,
     Hashable
@@ -406,26 +406,17 @@ public struct WorkspaceGrant:
         )
     }
 
-    public func isActive(
-        at date: Date = Date()
-    ) -> Bool {
-        guard let expiresAt else {
-            return true
-        }
-
-        return date < expiresAt
-    }
 }
 
-public struct WorkspaceGrantRecord:
+struct WorkspaceGrantRecord:
     Sendable,
     Codable,
     Hashable
 {
-    public let grant: WorkspaceGrant
-    public let state: WorkspaceGrantState
+    let grant: WorkspaceGrant
+    let state: WorkspaceGrantState
 
-    public init(
+    init(
         grant: WorkspaceGrant,
         state: WorkspaceGrantState = .active
     ) {
@@ -433,7 +424,7 @@ public struct WorkspaceGrantRecord:
         self.state = state
     }
 
-    public func status(
+    func status(
         at date: Date = Date()
     ) -> WorkspaceGrantStatus {
         switch state {

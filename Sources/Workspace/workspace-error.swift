@@ -7,6 +7,7 @@ public enum WorkspaceError:
     Hashable,
     LocalizedError
 {
+    case empty_roots
     case empty_grant_identifier
     case empty_capabilities(WorkspaceGrantIdentifier)
     case empty_installation
@@ -29,21 +30,14 @@ public enum WorkspaceError:
     case root_not_found(PathAccessRootIdentifier)
     case duplicate_grant(WorkspaceGrantIdentifier)
     case grant_not_found(WorkspaceGrantIdentifier)
+    case grant_not_active(WorkspaceGrantIdentifier)
     case grant_identifier_mismatch
     case grant_root_not_installed(
         grant: WorkspaceGrantIdentifier,
         root: PathAccessRootIdentifier
     )
-    case root_has_active_grants(
-        root: PathAccessRootIdentifier,
-        grants: [WorkspaceGrantIdentifier]
-    )
-    case root_has_active_registrations(
-        root: PathAccessRootIdentifier,
-        registrations: [WorkspaceRegistrationIdentifier]
-    )
-    case registration_not_found(WorkspaceRegistrationIdentifier)
-    case registration_not_active(WorkspaceRegistrationIdentifier)
+    case registration_not_found(WorkspaceRegistration)
+    case registration_not_active(WorkspaceRegistration)
     case authorization_denied(
         root: PathAccessRootIdentifier,
         path: String,
@@ -59,6 +53,9 @@ public enum WorkspaceError:
 
     public var errorDescription: String? {
         switch self {
+        case .empty_roots:
+            return "Workspace must contain at least one root."
+
         case .empty_grant_identifier:
             return "Workspace grant identifier cannot be empty."
 
@@ -113,29 +110,20 @@ public enum WorkspaceError:
         case .grant_not_found(let identifier):
             return "Workspace grant '\(identifier)' is not installed."
 
+        case .grant_not_active(let identifier):
+            return "Workspace grant '\(identifier)' is not active and cannot be replaced."
+
         case .grant_identifier_mismatch:
             return "Workspace grant storage key does not match its grant identifier."
 
         case .grant_root_not_installed(let grant, let root):
             return "Workspace grant '\(grant)' refers to root '\(root.rawValue)', which is not installed."
 
-        case .root_has_active_grants(let root, let grants):
-            let values = grants
-                .map(\.rawValue)
-                .joined(separator: ", ")
-            return "Workspace root '\(root.rawValue)' still has active grants: \(values)."
+        case .registration_not_found:
+            return "Workspace registration is not installed."
 
-        case .root_has_active_registrations(let root, let registrations):
-            let values = registrations
-                .map(\.description)
-                .joined(separator: ", ")
-            return "Workspace root '\(root.rawValue)' still belongs to active registrations: \(values)."
-
-        case .registration_not_found(let identifier):
-            return "Workspace registration '\(identifier)' is not installed."
-
-        case .registration_not_active(let identifier):
-            return "Workspace registration '\(identifier)' is no longer active."
+        case .registration_not_active:
+            return "Workspace registration is no longer active."
 
         case .authorization_denied(let root, let path, let capability):
             return "Workspace capability '\(capability.rawValue)' is not granted for '\(path)' under root '\(root.rawValue)'."

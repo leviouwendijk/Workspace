@@ -118,69 +118,51 @@ func workspaceAuthorityHardening() throws {
         ]
     )
 
+    var emptyWorkspaceRejected = false
+
+    do {
+        _ = try Workspace(
+            roots: []
+        )
+    } catch WorkspaceError.empty_roots {
+        emptyWorkspaceRejected = true
+    }
+
+    try expect(
+        emptyWorkspaceRejected,
+        "workspace construction rejects an authority graph without roots"
+    )
+
     var workspace = try Workspace(
-        roots: [
-            projectRoot,
-        ],
+        root: projectRoot,
         grants: [
             projectGrant,
         ]
     )
 
-    let projectLocation = try workspace.location(
-        ".",
-        rootIdentifier: projectID
-    )
-
-    try expect(
-        projectLocation.rootIdentifier == projectID,
-        "workspace location retains the root actually selected by Path authority"
-    )
-    try expect(
-        projectLocation.absoluteURL == projectURL.standardizedFileURL,
-        "workspace resolves a typed location through Path authority"
-    )
-
-    let defaultLocation = try workspace.location(
-        "."
-    )
-
-    try expect(
-        defaultLocation.rootIdentifier == projectID,
-        "workspace location records the resolved default root when no root is explicitly supplied"
-    )
-
     let projectContext = try workspace.context(
-        at: ".",
         rootIdentifier: projectID
     )
 
     try expect(
-        projectContext.workspace == workspace,
-        "workspace context exposes the authority snapshot used for an invocation"
+        projectContext.rootIdentifier == projectID,
+        "workspace context retains the root actually selected by Path authority"
     )
     try expect(
-        projectContext.location == projectLocation,
-        "workspace context exposes the resolved invocation location alongside its authority snapshot"
+        projectContext.absoluteURL == projectURL.standardizedFileURL,
+        "workspace context exposes the resolved execution anchor"
     )
 
-    let unlocatedContext = workspace.context()
+    let defaultContext = try workspace.context()
 
     try expect(
-        unlocatedContext.workspace == workspace,
-        "workspace can expose an authority context before an execution location is selected"
-    )
-    try expect(
-        unlocatedContext.location == nil,
-        "an unlocated workspace context does not invent a default execution target"
+        defaultContext.rootIdentifier == projectID,
+        "workspace context records the resolved default root when no root is explicitly supplied"
     )
 
-    let initialAuthorization = try workspace.authorize(
-        try WorkspaceAuthorizationRequest(
-            rootIdentifier: projectID,
-            path: "base.txt",
-            capability: .read
-        )
+    let initialAuthorization = try projectContext.authorize(
+        "base.txt",
+        capability: .read
     )
 
     let externalRoot = PathAccessRoot(
@@ -209,13 +191,6 @@ func workspaceAuthorityHardening() throws {
             externalGrant
         )
     }
-
-    try expect(
-        workspace.registration(
-            identifier: registrationA.id
-        ) != nil,
-        "workspace retains registration identity"
-    )
 
     let externalGrantB = try WorkspaceGrant(
         id: try WorkspaceGrantIdentifier(
@@ -337,20 +312,18 @@ func workspaceAuthorityHardening() throws {
         boundedGrant
     )
 
-    let boundedAuthorization = try workspace.authorize(
-        try WorkspaceAuthorizationRequest(
-            rootIdentifier: projectID,
-            path: "bounded.txt",
-            capability: .edit,
-            lineRange: try LineRange(
-                start: 3,
-                end: 3
-            ),
-            sourceSnapshot: boundedSnapshot
-        )
+    let boundedContext = try workspace.context()
+    let boundedAuthorization = try boundedContext.authorize(
+        "bounded.txt",
+        capability: .edit,
+        lineRange: try LineRange(
+            start: 3,
+            end: 3
+        ),
+        sourceSnapshot: boundedSnapshot
     )
 
-    try workspace.requireCurrent(
+    try boundedContext.requireCurrent(
         boundedAuthorization,
         currentSourceSnapshot: boundedSnapshot
     )
@@ -358,17 +331,14 @@ func workspaceAuthorityHardening() throws {
     var outsideRangeRejected = false
 
     do {
-        _ = try workspace.authorize(
-            try WorkspaceAuthorizationRequest(
-                rootIdentifier: projectID,
-                path: "bounded.txt",
-                capability: .edit,
-                lineRange: try LineRange(
-                    start: 1,
-                    end: 2
-                ),
-                sourceSnapshot: boundedSnapshot
-            )
+        _ = try boundedContext.authorize(
+            "bounded.txt",
+            capability: .edit,
+            lineRange: try LineRange(
+                start: 1,
+                end: 2
+            ),
+            sourceSnapshot: boundedSnapshot
         )
     } catch {
         outsideRangeRejected = true

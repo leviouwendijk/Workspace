@@ -1,60 +1,21 @@
 import Foundation
 import Path
 
-public struct WorkspaceRegistrationIdentifier:
+public struct WorkspaceRegistration:
     Sendable,
     Codable,
-    Hashable,
-    CustomStringConvertible
+    Hashable
 {
-    public let rawValue: UUID
+    let rawValue: UUID
 
-    public init(
+    init(
         rawValue: UUID = UUID()
     ) {
         self.rawValue = rawValue
     }
-
-    public var description: String {
-        rawValue.uuidString
-    }
 }
 
-public struct WorkspaceRegistration:
-    Sendable,
-    Codable,
-    Hashable,
-    Identifiable
-{
-    public let id: WorkspaceRegistrationIdentifier
-    public let roots: [PathAccessRootIdentifier]
-    public let grants: [WorkspaceGrantIdentifier]
-    public let revision: WorkspaceRevision
-
-    init(
-        id: WorkspaceRegistrationIdentifier,
-        roots: [PathAccessRootIdentifier],
-        grants: [WorkspaceGrantIdentifier],
-        revision: WorkspaceRevision
-    ) {
-        self.id = id
-        self.roots = Array(
-            Set(roots)
-        )
-        .sorted {
-            $0.rawValue < $1.rawValue
-        }
-        self.grants = Array(
-            Set(grants)
-        )
-        .sorted {
-            $0.rawValue < $1.rawValue
-        }
-        self.revision = revision
-    }
-}
-
-public enum WorkspaceRegistrationState:
+enum WorkspaceRegistrationState:
     Sendable,
     Codable,
     Hashable
@@ -63,19 +24,32 @@ public enum WorkspaceRegistrationState:
     case invalidated(WorkspaceRevision)
 }
 
-public struct WorkspaceRegistrationRecord:
+struct WorkspaceRegistrationRecord:
     Sendable,
     Codable,
     Hashable
 {
-    public let registration: WorkspaceRegistration
-    public let state: WorkspaceRegistrationState
+    let registration: WorkspaceRegistration
+    let roots: [PathAccessRootIdentifier]
+    let grants: [WorkspaceGrantIdentifier]
+    let revision: WorkspaceRevision
+    let state: WorkspaceRegistrationState
 
     init(
         registration: WorkspaceRegistration,
+        roots: [PathAccessRootIdentifier],
+        grants: [WorkspaceGrantIdentifier],
+        revision: WorkspaceRevision,
         state: WorkspaceRegistrationState
     ) {
         self.registration = registration
+        self.roots = Array(Set(roots)).sorted {
+            $0.rawValue < $1.rawValue
+        }
+        self.grants = Array(Set(grants)).sorted {
+            $0.rawValue < $1.rawValue
+        }
+        self.revision = revision
         self.state = state
     }
 }
@@ -88,67 +62,38 @@ enum WorkspaceInstallationOperation {
 public struct WorkspaceInstallation {
     var operations: [WorkspaceInstallationOperation] = []
 
-    public init() {}
+    init() {}
 
     public mutating func install(
         _ root: PathAccessRoot
     ) {
-        operations.append(
-            .root(
-                root
-            )
-        )
+        operations.append(.root(root))
     }
 
     public mutating func install(
         _ grant: WorkspaceGrant
     ) {
-        operations.append(
-            .grant(
-                grant
-            )
-        )
+        operations.append(.grant(grant))
     }
 }
 
 enum WorkspaceUpdateOperation {
     case replace_grant(WorkspaceGrant)
     case invalidate_grant(WorkspaceGrantIdentifier)
-    case remove_root(PathAccessRootIdentifier)
 }
 
-public struct WorkspaceUpdate {
+struct WorkspaceUpdate {
     var operations: [WorkspaceUpdateOperation] = []
 
-    public init() {}
-
-    public mutating func replace(
+    mutating func replace(
         _ grant: WorkspaceGrant
     ) {
-        operations.append(
-            .replace_grant(
-                grant
-            )
-        )
+        operations.append(.replace_grant(grant))
     }
 
-    public mutating func invalidate(
+    mutating func invalidate(
         _ identifier: WorkspaceGrantIdentifier
     ) {
-        operations.append(
-            .invalidate_grant(
-                identifier
-            )
-        )
-    }
-
-    public mutating func removeRoot(
-        _ identifier: PathAccessRootIdentifier
-    ) {
-        operations.append(
-            .remove_root(
-                identifier
-            )
-        )
+        operations.append(.invalidate_grant(identifier))
     }
 }
