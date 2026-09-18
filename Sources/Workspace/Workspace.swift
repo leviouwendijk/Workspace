@@ -232,6 +232,20 @@ public extension Workspace {
         paths.roots[identifier]
     }
 
+    var grants: [WorkspaceGrant] {
+        grantRecords.values
+            .map(\.grant)
+            .sorted {
+                $0.id.rawValue < $1.id.rawValue
+            }
+    }
+
+    func grant(
+        identifier: WorkspaceGrantIdentifier
+    ) -> WorkspaceGrant? {
+        grantRecords[identifier]?.grant
+    }
+
     func status(
         of identifier: WorkspaceGrantIdentifier,
         at date: Date = Date()

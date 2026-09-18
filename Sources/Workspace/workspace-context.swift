@@ -24,6 +24,40 @@ public struct WorkspaceContext: Sendable {
 }
 
 public extension WorkspaceContext {
+    var revision: WorkspaceRevision {
+        workspace.revision
+    }
+
+    var roots: [PathAccessRoot] {
+        workspace.roots
+    }
+
+    var defaultRootIdentifier: PathAccessRootIdentifier? {
+        workspace.defaultRootIdentifier
+    }
+
+    var grants: [WorkspaceGrant] {
+        workspace.grants
+    }
+
+    func grant(
+        identifier: WorkspaceGrantIdentifier
+    ) -> WorkspaceGrant? {
+        workspace.grant(
+            identifier: identifier
+        )
+    }
+
+    func status(
+        of identifier: WorkspaceGrantIdentifier,
+        at date: Date = Date()
+    ) -> WorkspaceGrantStatus? {
+        workspace.status(
+            of: identifier,
+            at: date
+        )
+    }
+
     func authorize(
         _ rawPath: String,
         capability: WorkspaceCapability,

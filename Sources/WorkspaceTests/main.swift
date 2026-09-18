@@ -140,6 +140,17 @@ func workspaceAuthorityHardening() throws {
         ]
     )
 
+    try expect(
+        workspace.grants == [projectGrant],
+        "workspace exposes semantic grants without exposing grant records"
+    )
+    try expect(
+        workspace.grant(
+            identifier: projectGrant.id
+        ) == projectGrant,
+        "workspace resolves a semantic grant by identifier"
+    )
+
     let projectContext = try workspace.context(
         rootIdentifier: projectID
     )
@@ -151,6 +162,34 @@ func workspaceAuthorityHardening() throws {
     try expect(
         projectContext.absoluteURL == projectURL.standardizedFileURL,
         "workspace context exposes the resolved execution anchor"
+    )
+    try expect(
+        projectContext.revision == workspace.revision,
+        "workspace context exposes the authority revision of its invocation snapshot"
+    )
+    try expect(
+        projectContext.roots == workspace.roots,
+        "workspace context exposes semantic roots without exposing raw workspace storage"
+    )
+    try expect(
+        projectContext.defaultRootIdentifier == projectID,
+        "workspace context exposes the default root identifier of its authority snapshot"
+    )
+    try expect(
+        projectContext.grants == [projectGrant],
+        "workspace context exposes semantic grants without exposing grant records"
+    )
+    try expect(
+        projectContext.grant(
+            identifier: projectGrant.id
+        ) == projectGrant,
+        "workspace context resolves a semantic grant by identifier"
+    )
+    try expect(
+        projectContext.status(
+            of: projectGrant.id
+        ) == .active,
+        "workspace context exposes effective grant status without exposing internal grant state"
     )
 
     let defaultContext = try workspace.context()
