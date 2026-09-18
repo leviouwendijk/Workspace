@@ -1,6 +1,7 @@
 import Foundation
 import Path
 import Position
+import Readers
 import Selection
 
 public enum WorkspaceCapability:
@@ -16,6 +17,16 @@ public enum WorkspaceCapability:
     case edit
     case scan
     case create_directory
+
+    public var supportsContentRange: Bool {
+        switch self {
+        case .read, .edit:
+            return true
+
+        case .list, .write, .scan, .create_directory:
+            return false
+        }
+    }
 }
 
 public struct WorkspaceGrantIdentifier:
@@ -112,6 +123,10 @@ public enum WorkspaceGrantState:
     Hashable
 {
     case active
+    case expired(
+        at: Date,
+        revision: WorkspaceRevision
+    )
     case invalidated(WorkspaceRevision)
 }
 
@@ -136,7 +151,10 @@ public struct WorkspaceScope:
         Hashable
     {
         case root
-        case selection(PathSelection)
+        case selection(
+            PathSelection,
+            FileReadSnapshot?
+        )
     }
 
     private let storage: Storage
@@ -154,19 +172,57 @@ public struct WorkspaceScope:
     public static func selection(
         _ selection: PathSelection
     ) throws -> Self {
-        if let content = selection.content {
-            switch content {
-            case .anchor:
-                throw WorkspaceError.dynamic_content_scope
-
-            case .lines, .point, .span:
-                break
-            }
+        guard selection.content == nil else {
+            throw WorkspaceError.content_scope_requires_source_snapshot
         }
 
         return Self(
             storage: .selection(
-                selection
+                selection,
+                nil
+            )
+        )
+    }
+
+    public static func resolved(
+        _ selection: PathSelection,
+        sourceSnapshot: FileReadSnapshot
+    ) throws -> Self {
+        guard let content = selection.content else {
+            throw WorkspaceError.source_snapshot_without_content
+        }
+
+        switch content {
+        case .anchor:
+            throw WorkspaceError.dynamic_content_scope
+
+        case .lines, .point, .span:
+            break
+        }
+
+        guard selection.pattern.terminalHint != .directory else {
+            throw WorkspaceError.directory_content_scope
+        }
+        guard selection.pattern.terminalHint == .file else {
+            throw WorkspaceError.content_scope_requires_file_terminal
+        }
+        guard selection.pattern.components.allSatisfy({ component in
+            if case .literal = component {
+                return true
+            }
+
+            return false
+        }) else {
+            throw WorkspaceError.content_scope_requires_concrete_path
+        }
+        guard sourceSnapshot.existed else {
+            throw WorkspaceError.source_snapshot_missing_file
+        }
+
+        return Self(
+            storage: .selection(
+                selection,
+                sourceSnapshot
             )
         )
     }
@@ -176,9 +232,27 @@ public struct WorkspaceScope:
         case .root:
             return nil
 
-        case .selection(let selection):
+        case .selection(let selection, _):
             return selection
         }
+    }
+
+    public var sourceSnapshot: FileReadSnapshot? {
+        switch storage {
+        case .root:
+            return nil
+
+        case .selection(_, let sourceSnapshot):
+            return sourceSnapshot
+        }
+    }
+
+    public var contentLineRange: LineRange? {
+        pathSelection?.content?.lineRange
+    }
+
+    public var hasContentScope: Bool {
+        pathSelection?.content != nil
     }
 
     public init(
@@ -192,9 +266,15 @@ public struct WorkspaceScope:
         case .root:
             self = .root
 
-        case .selection(let selection):
+        case .selection(let selection, nil):
             self = try .selection(
                 selection
+            )
+
+        case .selection(let selection, let sourceSnapshot?):
+            self = try .resolved(
+                selection,
+                sourceSnapshot: sourceSnapshot
             )
         }
     }
@@ -207,7 +287,7 @@ public struct WorkspaceScope:
         )
     }
 
-    func contains(
+    func matches(
         _ path: DescendantPath,
         lineRange: LineRange?
     ) -> Bool {
@@ -215,7 +295,7 @@ public struct WorkspaceScope:
         case .root:
             return true
 
-        case .selection(let selection):
+        case .selection(let selection, _):
             guard selection.pattern.matches(
                 path.relative
             ) else {
@@ -261,6 +341,23 @@ public struct WorkspaceGrant:
             throw WorkspaceError.empty_capabilities(
                 id
             )
+        }
+
+        if scope.hasContentScope {
+            let invalid = capabilities
+                .filter {
+                    !$0.supportsContentRange
+                }
+                .sorted {
+                    $0.rawValue < $1.rawValue
+                }
+
+            guard invalid.isEmpty else {
+                throw WorkspaceError.invalid_content_capabilities(
+                    grant: id,
+                    capabilities: invalid
+                )
+            }
         }
 
         self.id = id
@@ -343,6 +440,11 @@ public struct WorkspaceGrantRecord:
         case .invalidated(let revision):
             return .invalidated(
                 revision
+            )
+
+        case .expired(let expiresAt, _):
+            return .expired(
+                expiresAt
             )
 
         case .active:

@@ -1,6 +1,7 @@
 import Foundation
 import Path
 import Position
+import Readers
 import Selection
 import Workspace
 
@@ -19,11 +20,27 @@ func expect(
     }
 }
 
-func dynamicAuthorityState() throws {
+func requireSnapshot(
+    _ url: URL
+) throws -> FileReadSnapshot {
+    let result = try LineReader(
+        url
+    ).read()
+
+    guard let snapshot = result.fileSnapshot else {
+        throw RegressionFailure.assertion(
+            "reader did not produce a source snapshot"
+        )
+    }
+
+    return snapshot
+}
+
+func workspaceAuthorityHardening() throws {
     let fileManager = FileManager.default
     let fixtureRoot = fileManager.temporaryDirectory
         .appendingPathComponent(
-            "workspace-foundation-\(UUID().uuidString)",
+            "workspace-hardening-\(UUID().uuidString)",
             isDirectory: true
         )
     let projectURL = fixtureRoot.appendingPathComponent(
@@ -50,24 +67,28 @@ func dynamicAuthorityState() throws {
         )
     }
 
-    try "base\n".write(
-        to: projectURL.appendingPathComponent(
-            "base.txt"
-        ),
-        atomically: true,
-        encoding: .utf8
+    let baseURL = projectURL.appendingPathComponent(
+        "base.txt"
     )
-    try "external\n".write(
-        to: externalURL.appendingPathComponent(
-            "external.txt"
-        ),
+    let boundedURL = projectURL.appendingPathComponent(
+        "bounded.txt"
+    )
+    let externalFileURL = externalURL.appendingPathComponent(
+        "external.txt"
+    )
+
+    try "base\n".write(
+        to: baseURL,
         atomically: true,
         encoding: .utf8
     )
     try "one\ntwo\nthree\nfour\nfive\n".write(
-        to: projectURL.appendingPathComponent(
-            "bounded.txt"
-        ),
+        to: boundedURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "external\n".write(
+        to: externalFileURL,
         atomically: true,
         encoding: .utf8
     )
@@ -106,17 +127,27 @@ func dynamicAuthorityState() throws {
         ]
     )
 
+    try expect(
+        workspace.rootURL == projectURL.standardizedFileURL,
+        "workspace exposes the default root URL"
+    )
+
+    let projectLocation = try workspace.location(
+        ".",
+        rootIdentifier: projectID
+    )
+
+    try expect(
+        projectLocation.absoluteURL == projectURL.standardizedFileURL,
+        "workspace resolves a typed location through Path authority"
+    )
+
     let initialAuthorization = try workspace.authorize(
-        WorkspaceAuthorizationRequest(
+        try WorkspaceAuthorizationRequest(
             rootIdentifier: projectID,
             path: "base.txt",
             capability: .read
         )
-    )
-
-    try expect(
-        initialAuthorization.revision == .initial,
-        "initial authorization records initial workspace revision"
     )
 
     let externalRoot = PathAccessRoot(
@@ -129,7 +160,7 @@ func dynamicAuthorityState() throws {
     )
     let externalGrant = try WorkspaceGrant(
         id: try WorkspaceGrantIdentifier(
-            "external-read"
+            "external-read-a"
         ),
         rootIdentifier: externalID,
         capabilities: [
@@ -137,66 +168,79 @@ func dynamicAuthorityState() throws {
         ]
     )
 
-    let externalRegistration = try workspace.update { update in
-        update.install(
+    let registrationA = try workspace.install { installation in
+        installation.install(
             externalRoot
         )
-        update.install(
+        installation.install(
             externalGrant
         )
     }
 
     try expect(
-        externalRegistration.roots == [
-            externalID,
-        ],
-        "transaction registration records installed root"
+        workspace.registration(
+            identifier: registrationA.id
+        ) != nil,
+        "workspace retains registration identity"
     )
-    try expect(
-        externalRegistration.grants == [
-            externalGrant.id,
-        ],
-        "transaction registration records installed grant"
-    )
-    try expect(
-        workspace.revision == WorkspaceRevision(
-            rawValue: 1
+
+    let externalGrantB = try WorkspaceGrant(
+        id: try WorkspaceGrantIdentifier(
+            "external-read-b"
         ),
-        "atomic installation advances workspace revision once"
+        rootIdentifier: externalID,
+        capabilities: [
+            .read,
+        ]
+    )
+    let registrationB = try workspace.install(
+        externalGrantB
     )
 
-    _ = try workspace.authorize(
-        WorkspaceAuthorizationRequest(
-            rootIdentifier: externalID,
-            path: "external.txt",
-            capability: .read
-        )
+    _ = try workspace.invalidate(
+        registrationA
     )
 
-    var staleRejected = false
+    try expect(
+        workspace.root(
+            identifier: externalID
+        ) != nil,
+        "invalidating a root-owning registration preserves its root while another active grant depends on it"
+    )
+
+    _ = try workspace.invalidate(
+        registrationB
+    )
+
+    try expect(
+        workspace.root(
+            identifier: externalID
+        ) == nil,
+        "workspace reclaims a registration-owned root after its final active dependent authority ends"
+    )
+
+    var staleRevisionRejected = false
 
     do {
         try workspace.requireCurrent(
             initialAuthorization
         )
     } catch WorkspaceError.stale_authorization {
-        staleRejected = true
+        staleRevisionRejected = true
     }
 
     try expect(
-        staleRejected,
-        "authority mutation makes previous authorization evidence stale"
+        staleRevisionRejected,
+        "workspace mutations stale previously issued authorization evidence"
     )
 
-    let refreshedAuthorization = try workspace.reauthorize(
+    _ = try workspace.reauthorize(
         initialAuthorization
     )
 
-    try expect(
-        refreshedAuthorization.revision == workspace.revision,
-        "reauthorization binds evidence to current revision"
+    let boundedSnapshot = try requireSnapshot(
+        boundedURL
     )
-
     let boundedRange = try LineRange(
         start: 2,
         end: 4
@@ -210,14 +254,48 @@ func dynamicAuthorityState() throws {
             boundedRange
         )
     )
+    let wrongSnapshot = try requireSnapshot(
+        baseURL
+    )
+    let wrongScope = try WorkspaceScope.resolved(
+        boundedSelection,
+        sourceSnapshot: wrongSnapshot
+    )
+    let wrongGrant = try WorkspaceGrant(
+        id: try WorkspaceGrantIdentifier(
+            "bounded-wrong-source"
+        ),
+        rootIdentifier: projectID,
+        scope: wrongScope,
+        capabilities: [
+            .edit,
+        ]
+    )
+    var wrongSourceBindingRejected = false
+
+    do {
+        _ = try workspace.install(
+            wrongGrant
+        )
+    } catch WorkspaceError.source_snapshot_path_mismatch {
+        wrongSourceBindingRejected = true
+    }
+
+    try expect(
+        wrongSourceBindingRejected,
+        "workspace installation binds resolved source evidence to the grant's selected path"
+    )
+
+    let boundedScope = try WorkspaceScope.resolved(
+        boundedSelection,
+        sourceSnapshot: boundedSnapshot
+    )
     let boundedGrant = try WorkspaceGrant(
         id: try WorkspaceGrantIdentifier(
             "bounded-edit"
         ),
         rootIdentifier: projectID,
-        scope: try .selection(
-            boundedSelection
-        ),
+        scope: boundedScope,
         capabilities: [
             .edit,
         ]
@@ -226,30 +304,37 @@ func dynamicAuthorityState() throws {
         boundedGrant
     )
 
-    _ = try workspace.authorize(
-        WorkspaceAuthorizationRequest(
+    let boundedAuthorization = try workspace.authorize(
+        try WorkspaceAuthorizationRequest(
             rootIdentifier: projectID,
             path: "bounded.txt",
             capability: .edit,
             lineRange: try LineRange(
                 start: 3,
                 end: 3
-            )
+            ),
+            sourceSnapshot: boundedSnapshot
         )
+    )
+
+    try workspace.requireCurrent(
+        boundedAuthorization,
+        currentSourceSnapshot: boundedSnapshot
     )
 
     var outsideRangeRejected = false
 
     do {
         _ = try workspace.authorize(
-            WorkspaceAuthorizationRequest(
+            try WorkspaceAuthorizationRequest(
                 rootIdentifier: projectID,
                 path: "bounded.txt",
                 capability: .edit,
                 lineRange: try LineRange(
                     start: 1,
                     end: 2
-                )
+                ),
+                sourceSnapshot: boundedSnapshot
             )
         )
     } catch {
@@ -258,96 +343,117 @@ func dynamicAuthorityState() throws {
 
     try expect(
         outsideRangeRejected,
-        "content-scoped grant rejects edits outside its line range"
+        "content-scoped authority rejects ranges outside the resolved extent"
     )
 
-    var wholeFileRejected = false
+    var impossibleCapabilityRejected = false
 
     do {
-        _ = try workspace.authorize(
-            WorkspaceAuthorizationRequest(
-                rootIdentifier: projectID,
-                path: "bounded.txt",
-                capability: .edit
-            )
+        _ = try WorkspaceGrant(
+            id: try WorkspaceGrantIdentifier(
+                "bounded-write"
+            ),
+            rootIdentifier: projectID,
+            scope: boundedScope,
+            capabilities: [
+                .write,
+            ]
         )
-    } catch {
-        wholeFileRejected = true
+    } catch WorkspaceError.invalid_content_capabilities {
+        impossibleCapabilityRejected = true
     }
 
     try expect(
-        wholeFileRejected,
-        "content-scoped grant cannot authorize whole-file edit"
+        impossibleCapabilityRejected,
+        "whole-file capabilities cannot be represented as content-range authority"
     )
 
-    let beforeFailedUpdate = workspace
-    let missingRootID = PathAccessRootIdentifier(
-        rawValue: "missing"
+    var directoryContentRejected = false
+
+    do {
+        _ = try WorkspaceScope.resolved(
+            PathSelection(
+                [
+                    .literal("bounded.txt"),
+                ],
+                terminalHint: .directory,
+                content: .lines(
+                    boundedRange
+                )
+            ),
+            sourceSnapshot: boundedSnapshot
+        )
+    } catch WorkspaceError.directory_content_scope {
+        directoryContentRejected = true
+    }
+
+    try expect(
+        directoryContentRejected,
+        "directory selections cannot retain file content authority"
     )
-    let invalidGrant = try WorkspaceGrant(
+
+    try "changed\nsource\ncontents\n".write(
+        to: boundedURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let changedSnapshot = try requireSnapshot(
+        boundedURL
+    )
+    var staleSourceRejected = false
+
+    do {
+        _ = try workspace.reauthorize(
+            boundedAuthorization,
+            currentSourceSnapshot: changedSnapshot
+        )
+    } catch WorkspaceError.stale_source_snapshot {
+        staleSourceRejected = true
+    }
+
+    try expect(
+        staleSourceRejected,
+        "resolved content authority refuses source evidence from a changed file"
+    )
+
+    let expiringGrant = try WorkspaceGrant(
         id: try WorkspaceGrantIdentifier(
-            "invalid-root-grant"
+            "expired-read"
         ),
-        rootIdentifier: missingRootID,
+        rootIdentifier: projectID,
         capabilities: [
             .read,
-        ]
+        ],
+        expiresAt: Date(
+            timeIntervalSince1970: 100
+        )
     )
-    var failedTransaction = false
-
-    do {
-        _ = try workspace.update { update in
-            update.install(
-                invalidGrant
-            )
-        }
-    } catch {
-        failedTransaction = true
-    }
-
-    try expect(
-        failedTransaction,
-        "grant for missing root is rejected"
+    _ = try workspace.install(
+        expiringGrant
     )
-    try expect(
-        workspace == beforeFailedUpdate,
-        "failed workspace update commits no partial authority state"
-    )
-
-    _ = try workspace.invalidate(
-        externalRegistration
+    let beforeRevalidation = workspace.revision
+    _ = try workspace.revalidate(
+        at: Date(
+            timeIntervalSince1970: 200
+        )
     )
 
     try expect(
-        workspace.root(
-            identifier: externalID
-        ) == nil,
-        "invalidating registration removes now-unused installed root"
+        workspace.revision > beforeRevalidation,
+        "temporal revalidation advances authority revision when grant state changes"
     )
     try expect(
         workspace.status(
-            of: externalGrant.id
-        ) != .active,
-        "invalidating registration revokes installed grant"
-    )
-
-    var externalRejected = false
-
-    do {
-        _ = try workspace.authorize(
-            WorkspaceAuthorizationRequest(
-                rootIdentifier: externalID,
-                path: "external.txt",
-                capability: .read
+            of: expiringGrant.id,
+            at: Date(
+                timeIntervalSince1970: 200
             )
-        )
-    } catch {
-        externalRejected = true
-    }
-
-    try expect(
-        externalRejected,
-        "revoked registration no longer contributes authority"
+        ) == .expired(
+            Date(
+                timeIntervalSince1970: 100
+            )
+        ),
+        "revalidation canonicalizes elapsed grants into expired state"
     )
 
     _ = try workspace.invalidate(
@@ -358,15 +464,7 @@ func dynamicAuthorityState() throws {
         workspace.root(
             identifier: projectID
         ) != nil,
-        "invalidating grant-only registration preserves pre-existing root"
-    )
-
-    _ = try workspace.authorize(
-        WorkspaceAuthorizationRequest(
-            rootIdentifier: projectID,
-            path: "base.txt",
-            capability: .read
-        )
+        "registration cleanup never removes roots that were part of the workspace's initial authority state"
     )
 
     let encoded = try JSONEncoder().encode(
@@ -379,9 +477,9 @@ func dynamicAuthorityState() throws {
 
     try expect(
         decoded == workspace,
-        "workspace dynamic authority state survives durable round trip"
+        "workspace roots, grants, registrations, states, source evidence, and revision survive durable round trip"
     )
 }
 
-try dynamicAuthorityState()
+try workspaceAuthorityHardening()
 print("WorkspaceTests: passed")

@@ -1,19 +1,43 @@
+import Foundation
 import Path
+
+public struct WorkspaceRegistrationIdentifier:
+    Sendable,
+    Codable,
+    Hashable,
+    CustomStringConvertible
+{
+    public let rawValue: UUID
+
+    public init(
+        rawValue: UUID = UUID()
+    ) {
+        self.rawValue = rawValue
+    }
+
+    public var description: String {
+        rawValue.uuidString
+    }
+}
 
 public struct WorkspaceRegistration:
     Sendable,
     Codable,
-    Hashable
+    Hashable,
+    Identifiable
 {
+    public let id: WorkspaceRegistrationIdentifier
     public let roots: [PathAccessRootIdentifier]
     public let grants: [WorkspaceGrantIdentifier]
     public let revision: WorkspaceRevision
 
     init(
+        id: WorkspaceRegistrationIdentifier,
         roots: [PathAccessRootIdentifier],
         grants: [WorkspaceGrantIdentifier],
         revision: WorkspaceRevision
     ) {
+        self.id = id
         self.roots = Array(
             Set(roots)
         )
@@ -28,22 +52,41 @@ public struct WorkspaceRegistration:
         }
         self.revision = revision
     }
+}
 
-    public var isEmpty: Bool {
-        roots.isEmpty && grants.isEmpty
+public enum WorkspaceRegistrationState:
+    Sendable,
+    Codable,
+    Hashable
+{
+    case active
+    case invalidated(WorkspaceRevision)
+}
+
+public struct WorkspaceRegistrationRecord:
+    Sendable,
+    Codable,
+    Hashable
+{
+    public let registration: WorkspaceRegistration
+    public let state: WorkspaceRegistrationState
+
+    init(
+        registration: WorkspaceRegistration,
+        state: WorkspaceRegistrationState
+    ) {
+        self.registration = registration
+        self.state = state
     }
 }
 
-enum WorkspaceUpdateOperation {
-    case install_root(PathAccessRoot)
-    case install_grant(WorkspaceGrant)
-    case replace_grant(WorkspaceGrant)
-    case invalidate_grant(WorkspaceGrantIdentifier)
-    case remove_root(PathAccessRootIdentifier)
+enum WorkspaceInstallationOperation {
+    case root(PathAccessRoot)
+    case grant(WorkspaceGrant)
 }
 
-public struct WorkspaceUpdate {
-    var operations: [WorkspaceUpdateOperation] = []
+public struct WorkspaceInstallation {
+    var operations: [WorkspaceInstallationOperation] = []
 
     public init() {}
 
@@ -51,7 +94,7 @@ public struct WorkspaceUpdate {
         _ root: PathAccessRoot
     ) {
         operations.append(
-            .install_root(
+            .root(
                 root
             )
         )
@@ -61,11 +104,23 @@ public struct WorkspaceUpdate {
         _ grant: WorkspaceGrant
     ) {
         operations.append(
-            .install_grant(
+            .grant(
                 grant
             )
         )
     }
+}
+
+enum WorkspaceUpdateOperation {
+    case replace_grant(WorkspaceGrant)
+    case invalidate_grant(WorkspaceGrantIdentifier)
+    case remove_root(PathAccessRootIdentifier)
+}
+
+public struct WorkspaceUpdate {
+    var operations: [WorkspaceUpdateOperation] = []
+
+    public init() {}
 
     public mutating func replace(
         _ grant: WorkspaceGrant

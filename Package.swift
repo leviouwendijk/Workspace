@@ -15,7 +15,7 @@ let package = Package(
             ]
         ),
         .executable(
-            name: "wtest",
+            name: "worktest",
             targets: [
                 "WorkspaceTests",
             ]
@@ -32,6 +32,10 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/leviouwendijk/Selection.git",
+            branch: "master"
+        ),
+        .package(
+            url: "https://github.com/leviouwendijk/Readers.git",
             branch: "master"
         ),
     ],
@@ -51,6 +55,10 @@ let package = Package(
                     name: "Selection",
                     package: "Selection"
                 ),
+                .product(
+                    name: "Readers",
+                    package: "Readers"
+                ),
             ]
         ),
         .executableTarget(
@@ -68,6 +76,10 @@ let package = Package(
                 .product(
                     name: "Selection",
                     package: "Selection"
+                ),
+                .product(
+                    name: "Readers",
+                    package: "Readers"
                 ),
             ]
         ),
