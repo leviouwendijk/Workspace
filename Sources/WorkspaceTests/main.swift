@@ -51,6 +51,10 @@ func workspaceAuthorityHardening() throws {
         "external",
         isDirectory: true
     )
+    let nestedURL = projectURL.appendingPathComponent(
+        "nested",
+        isDirectory: true
+    )
 
     try fileManager.createDirectory(
         at: projectURL,
@@ -58,6 +62,10 @@ func workspaceAuthorityHardening() throws {
     )
     try fileManager.createDirectory(
         at: externalURL,
+        withIntermediateDirectories: true
+    )
+    try fileManager.createDirectory(
+        at: nestedURL,
         withIntermediateDirectories: true
     )
 
@@ -160,6 +168,10 @@ func workspaceAuthorityHardening() throws {
         "workspace context retains the root actually selected by Path authority"
     )
     try expect(
+        projectContext.rootURL == projectURL.standardizedFileURL,
+        "workspace context exposes its selected root anchor"
+    )
+    try expect(
         projectContext.absoluteURL == projectURL.standardizedFileURL,
         "workspace context exposes the resolved execution anchor"
     )
@@ -197,6 +209,23 @@ func workspaceAuthorityHardening() throws {
     try expect(
         defaultContext.rootIdentifier == projectID,
         "workspace context records the resolved default root when no root is explicitly supplied"
+    )
+
+    let nestedContext = try projectContext.context(
+        atRootPath: "nested"
+    )
+
+    try expect(
+        nestedContext.rootIdentifier == projectID,
+        "root-relative retargeting preserves the selected workspace root"
+    )
+    try expect(
+        nestedContext.rootURL == projectURL.standardizedFileURL,
+        "root-relative retargeting preserves the root anchor"
+    )
+    try expect(
+        nestedContext.absoluteURL == nestedURL.standardizedFileURL,
+        "root-relative retargeting resolves the requested directory"
     )
 
     let initialAuthorization = try projectContext.authorize(

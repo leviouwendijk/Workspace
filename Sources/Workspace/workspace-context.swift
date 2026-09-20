@@ -7,17 +7,20 @@ public struct WorkspaceContext: Sendable {
     let workspace: Workspace
 
     public let rootIdentifier: PathAccessRootIdentifier
+    public let rootURL: URL
     public let path: DescendantPath
     public let absoluteURL: URL
 
     init(
         workspace: Workspace,
         rootIdentifier: PathAccessRootIdentifier,
+        rootURL: URL,
         path: DescendantPath,
         absoluteURL: URL
     ) {
         self.workspace = workspace
         self.rootIdentifier = rootIdentifier
+        self.rootURL = rootURL.standardizedFileURL
         self.path = path
         self.absoluteURL = absoluteURL.standardizedFileURL
     }
@@ -89,6 +92,15 @@ public extension WorkspaceContext {
         )
     }
 
+    func context(
+        atRootPath rawPath: String
+    ) throws -> WorkspaceContext {
+        try workspace.context(
+            at: rawPath,
+            rootIdentifier: rootIdentifier
+        )
+    }
+
     func requireCurrent(
         _ authorization: WorkspaceAuthorization,
         currentSourceSnapshot: FileReadSnapshot? = nil,
@@ -125,9 +137,16 @@ public extension Workspace {
             type: .directory
         )
 
+        let root = try paths.authorize(
+            ".",
+            rootIdentifier: authorized.rootIdentifier,
+            type: .directory
+        )
+
         return WorkspaceContext(
             workspace: self,
             rootIdentifier: authorized.rootIdentifier,
+            rootURL: root.absoluteURL,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL
         )
@@ -143,9 +162,16 @@ public extension Workspace {
             type: .directory
         )
 
+        let root = try paths.authorize(
+            ".",
+            rootIdentifier: authorized.rootIdentifier,
+            type: .directory
+        )
+
         return WorkspaceContext(
             workspace: self,
             rootIdentifier: authorized.rootIdentifier,
+            rootURL: root.absoluteURL,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL
         )
