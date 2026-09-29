@@ -3,13 +3,15 @@ import Path
 import Position
 import Readers
 import Selection
+import Schema
 
 public enum WorkspaceCapability:
     String,
     Sendable,
     Codable,
     Hashable,
-    CaseIterable
+    CaseIterable,
+    JSONSchemaProviding
 {
     case list
     case read
@@ -17,6 +19,12 @@ public enum WorkspaceCapability:
     case edit
     case scan
     case create_directory
+
+    public static var jsonschema: JSONSchema {
+        .string(
+            cases: allCases.map(\.rawValue)
+        )
+    }
 
     public var supportsContentRange: Bool {
         switch self {

@@ -38,6 +38,10 @@ let package = Package(
             url: "https://github.com/leviouwendijk/Readers.git",
             branch: "master"
         ),
+        .package(
+            url: "https://github.com/leviouwendijk/Schema.git",
+            branch: "master"
+        ),
     ],
     targets: [
         .target(
@@ -58,6 +62,10 @@ let package = Package(
                 .product(
                     name: "Readers",
                     package: "Readers"
+                ),
+                .product(
+                    name: "Schema",
+                    package: "Schema"
                 ),
             ]
         ),
