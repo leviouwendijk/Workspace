@@ -28,6 +28,7 @@ public enum WorkspaceError:
     case invalid_line_range_capability(WorkspaceCapability)
     case duplicate_root(PathAccessRootIdentifier)
     case root_not_found(PathAccessRootIdentifier)
+    case retargeting_disabled
     case duplicate_grant(WorkspaceGrantIdentifier)
     case grant_not_found(WorkspaceGrantIdentifier)
     case grant_not_active(WorkspaceGrantIdentifier)
@@ -103,6 +104,9 @@ public enum WorkspaceError:
 
         case .root_not_found(let identifier):
             return "Workspace root '\(identifier.rawValue)' is not installed."
+
+        case .retargeting_disabled:
+            return "Workspace context does not allow retargeting."
 
         case .duplicate_grant(let identifier):
             return "Workspace grant '\(identifier)' is already installed."

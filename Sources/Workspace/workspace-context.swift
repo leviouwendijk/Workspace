@@ -4,25 +4,37 @@ import Position
 import Readers
 
 public struct WorkspaceContext: Sendable {
+    public enum Targeting:
+        Sendable,
+        Codable,
+        Hashable
+    {
+        case fixed
+        case root
+    }
+
     let workspace: Workspace
 
     public let rootIdentifier: PathAccessRootIdentifier
     public let rootURL: URL
     public let path: DescendantPath
     public let absoluteURL: URL
+    public let targeting: Targeting
 
     init(
         workspace: Workspace,
         rootIdentifier: PathAccessRootIdentifier,
         rootURL: URL,
         path: DescendantPath,
-        absoluteURL: URL
+        absoluteURL: URL,
+        targeting: Targeting
     ) {
         self.workspace = workspace
         self.rootIdentifier = rootIdentifier
         self.rootURL = rootURL.standardizedFileURL
         self.path = path
         self.absoluteURL = absoluteURL.standardizedFileURL
+        self.targeting = targeting
     }
 }
 
@@ -95,9 +107,14 @@ public extension WorkspaceContext {
     func context(
         atRootPath rawPath: String
     ) throws -> WorkspaceContext {
-        try workspace.context(
+        guard targeting == .root else {
+            throw WorkspaceError.retargeting_disabled
+        }
+
+        return try workspace.context(
             at: rawPath,
-            rootIdentifier: rootIdentifier
+            rootIdentifier: rootIdentifier,
+            targeting: targeting
         )
     }
 
@@ -129,7 +146,8 @@ public extension WorkspaceContext {
 public extension Workspace {
     func context(
         at rawPath: String = ".",
-        rootIdentifier: PathAccessRootIdentifier? = nil
+        rootIdentifier: PathAccessRootIdentifier? = nil,
+        targeting: WorkspaceContext.Targeting = .root
     ) throws -> WorkspaceContext {
         let authorized = try paths.authorize(
             rawPath,
@@ -148,13 +166,15 @@ public extension Workspace {
             rootIdentifier: authorized.rootIdentifier,
             rootURL: root.absoluteURL,
             path: authorized.path,
-            absoluteURL: authorized.absoluteURL
+            absoluteURL: authorized.absoluteURL,
+            targeting: targeting
         )
     }
 
     func context(
         at path: DescendantPath,
-        rootIdentifier: PathAccessRootIdentifier? = nil
+        rootIdentifier: PathAccessRootIdentifier? = nil,
+        targeting: WorkspaceContext.Targeting = .root
     ) throws -> WorkspaceContext {
         let authorized = try paths.authorize(
             path,
@@ -173,7 +193,8 @@ public extension Workspace {
             rootIdentifier: authorized.rootIdentifier,
             rootURL: root.absoluteURL,
             path: authorized.path,
-            absoluteURL: authorized.absoluteURL
+            absoluteURL: authorized.absoluteURL,
+            targeting: targeting
         )
     }
 }

@@ -180,6 +180,10 @@ func workspaceAuthorityHardening() throws {
         "workspace context exposes the authority revision of its invocation snapshot"
     )
     try expect(
+        projectContext.targeting == .root,
+        "workspace contexts allow root-relative retargeting by default"
+    )
+    try expect(
         projectContext.roots == workspace.roots,
         "workspace context exposes semantic roots without exposing raw workspace storage"
     )
@@ -226,6 +230,29 @@ func workspaceAuthorityHardening() throws {
     try expect(
         nestedContext.absoluteURL == nestedURL.standardizedFileURL,
         "root-relative retargeting resolves the requested directory"
+    )
+    try expect(
+        nestedContext.targeting == .root,
+        "derived workspace contexts preserve their targeting policy"
+    )
+
+    let fixedContext = try workspace.context(
+        rootIdentifier: projectID,
+        targeting: .fixed
+    )
+    var fixedRetargetingRejected = false
+
+    do {
+        _ = try fixedContext.context(
+            atRootPath: "nested"
+        )
+    } catch WorkspaceError.retargeting_disabled {
+        fixedRetargetingRejected = true
+    }
+
+    try expect(
+        fixedRetargetingRejected,
+        "fixed workspace contexts reject root-relative retargeting"
     )
 
     let initialAuthorization = try projectContext.authorize(
