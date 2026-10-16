@@ -4,6 +4,7 @@ import Position
 import Readers
 import Selection
 import Workspace
+import Writers
 
 enum RegressionFailure: Error {
     case assertion(String)
@@ -160,7 +161,8 @@ func workspaceAuthorityHardening() throws {
     )
 
     let projectContext = try workspace.context(
-        rootIdentifier: projectID
+        rootIdentifier: projectID,
+        execution: .init(io: .blocking, mutations: .immediate)
     )
 
     try expect(
@@ -208,12 +210,45 @@ func workspaceAuthorityHardening() throws {
         "workspace context exposes effective grant status without exposing internal grant state"
     )
 
-    let defaultContext = try workspace.context()
+    let defaultContext = try workspace.context(execution: .init(io: .blocking, mutations: .immediate))
 
     try expect(
         defaultContext.rootIdentifier == projectID,
         "workspace context records the resolved default root when no root is explicitly supplied"
     )
+
+    // Live coordinated execution is carried by derived contexts, without
+    // becoming part of Workspace's persisted authorization graph.
+    let coordinator = StandardEditCoordinator()
+    let coordinatedContext = try workspace.context(
+        execution: .init(
+            io: .blocking,
+            mutations: .coordinated(coordinator)
+        )
+    )
+    let coordinatedNested = try coordinatedContext.context(
+        atRootPath: "nested"
+    )
+    switch coordinatedNested.execution.mutations {
+    case .coordinated(let inherited):
+        try expect(
+            inherited === coordinator,
+            "workspace retargeting preserves coordinator identity"
+        )
+    case .immediate:
+        throw RegressionFailure.assertion(
+            "workspace retargeting unexpectedly removed coordination"
+        )
+    }
+    do {
+        try coordinatedNested.execution.requireImmediateMutation()
+        throw RegressionFailure.assertion(
+            "coordinated execution allowed immediate mutation"
+        )
+    } catch WorkspaceExecutionError.coordinatedMutationRequiresSubmission {
+        // Expected: coordinated mutation must use acquisitions and proposals.
+    }
+    try projectContext.execution.requireImmediateMutation()
 
     let nestedContext = try projectContext.context(
         atRootPath: "nested"
@@ -238,7 +273,8 @@ func workspaceAuthorityHardening() throws {
 
     let fixedContext = try workspace.context(
         rootIdentifier: projectID,
-        targeting: .fixed
+        targeting: .fixed,
+        execution: .init(io: .blocking, mutations: .immediate)
     )
     var fixedRetargetingRejected = false
 
@@ -407,7 +443,7 @@ func workspaceAuthorityHardening() throws {
         boundedGrant
     )
 
-    let boundedContext = try workspace.context()
+    let boundedContext = try workspace.context(execution: .init(io: .blocking, mutations: .immediate))
     let boundedAuthorization = try boundedContext.authorize(
         "bounded.txt",
         capability: .edit,

@@ -20,6 +20,7 @@ public struct WorkspaceContext: Sendable {
     public let path: DescendantPath
     public let absoluteURL: URL
     public let targeting: Targeting
+    public let execution: WorkspaceExecution
 
     init(
         workspace: Workspace,
@@ -27,7 +28,8 @@ public struct WorkspaceContext: Sendable {
         rootURL: URL,
         path: DescendantPath,
         absoluteURL: URL,
-        targeting: Targeting
+        targeting: Targeting,
+        execution: WorkspaceExecution
     ) {
         self.workspace = workspace
         self.rootIdentifier = rootIdentifier
@@ -35,6 +37,7 @@ public struct WorkspaceContext: Sendable {
         self.path = path
         self.absoluteURL = absoluteURL.standardizedFileURL
         self.targeting = targeting
+        self.execution = execution
     }
 }
 
@@ -114,7 +117,8 @@ public extension WorkspaceContext {
         return try workspace.context(
             at: rawPath,
             rootIdentifier: rootIdentifier,
-            targeting: targeting
+            targeting: targeting,
+            execution: execution
         )
     }
 
@@ -147,7 +151,8 @@ public extension Workspace {
     func context(
         at rawPath: String = ".",
         rootIdentifier: PathAccessRootIdentifier? = nil,
-        targeting: WorkspaceContext.Targeting = .root
+        targeting: WorkspaceContext.Targeting = .root,
+        execution: WorkspaceExecution
     ) throws -> WorkspaceContext {
         let authorized = try paths.authorize(
             rawPath,
@@ -167,14 +172,16 @@ public extension Workspace {
             rootURL: root.absoluteURL,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL,
-            targeting: targeting
+            targeting: targeting,
+            execution: execution
         )
     }
 
     func context(
         at path: DescendantPath,
         rootIdentifier: PathAccessRootIdentifier? = nil,
-        targeting: WorkspaceContext.Targeting = .root
+        targeting: WorkspaceContext.Targeting = .root,
+        execution: WorkspaceExecution
     ) throws -> WorkspaceContext {
         let authorized = try paths.authorize(
             path,
@@ -194,7 +201,8 @@ public extension Workspace {
             rootURL: root.absoluteURL,
             path: authorized.path,
             absoluteURL: authorized.absoluteURL,
-            targeting: targeting
+            targeting: targeting,
+            execution: execution
         )
     }
 }

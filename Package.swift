@@ -39,6 +39,14 @@ let package = Package(
             branch: "master"
         ),
         .package(
+            url: "https://github.com/leviouwendijk/IO.git",
+            branch: "master"
+        ),
+        .package(
+            url: "https://github.com/leviouwendijk/Writers.git",
+            branch: "master"
+        ),
+        .package(
             url: "https://github.com/leviouwendijk/Schema.git",
             branch: "master"
         ),
@@ -64,6 +72,14 @@ let package = Package(
                     package: "Readers"
                 ),
                 .product(
+                    name: "IO",
+                    package: "IO"
+                ),
+                .product(
+                    name: "Writers",
+                    package: "Writers"
+                ),
+                .product(
                     name: "Schema",
                     package: "Schema"
                 ),
@@ -73,6 +89,10 @@ let package = Package(
             name: "WorkspaceTests",
             dependencies: [
                 "Workspace",
+                .product(
+                    name: "Writers",
+                    package: "Writers"
+                ),
                 .product(
                     name: "Path",
                     package: "Path"
