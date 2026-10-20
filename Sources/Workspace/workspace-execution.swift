@@ -23,10 +23,16 @@ public struct WorkspaceExecution: Sendable {
     }
 }
 
-public enum WorkspaceMutationMode: Sendable {
+/// One execution-mode shape specialized by the capability available at each layer.
+/// The owning host may carry a coordinator, while a workspace carries a
+/// restricted per-run participant. This value does not allocate a coordinator.
+public enum MutationExecutionMode<Capability: Sendable>: Sendable {
     case immediate
-    case coordinated(WorkspaceCoordinatedSubmission)
+    case coordinated(Capability)
 }
+
+public typealias WorkspaceMutationMode =
+    MutationExecutionMode<WorkspaceCoordinatedSubmission>
 
 public enum WorkspaceExecutionError: Error, Sendable {
     case coordinatedMutationRequiresSubmission
