@@ -2,7 +2,7 @@ import IO
 import Writers
 
 /// Execution policy shared by contexts derived from one authorized workspace.
-/// The caller owns its lifetime, including any coordinated editing state.
+/// The session retains the coordinator. Tools receive only an authorized participant.
 public struct WorkspaceExecution: Sendable {
     public let io: IO
     public let mutations: WorkspaceMutationMode
@@ -25,9 +25,11 @@ public struct WorkspaceExecution: Sendable {
 
 public enum WorkspaceMutationMode: Sendable {
     case immediate
-    case coordinated(StandardEditCoordinator)
+    case coordinated(WorkspaceCoordinatedSubmission)
 }
 
 public enum WorkspaceExecutionError: Error, Sendable {
     case coordinatedMutationRequiresSubmission
+    case empty_coordinated_scope
+    case coordinated_context_root_mismatch
 }

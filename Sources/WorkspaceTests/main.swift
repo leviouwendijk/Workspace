@@ -37,7 +37,7 @@ func requireSnapshot(
     return snapshot
 }
 
-func workspaceAuthorityHardening() throws {
+func workspaceAuthorityHardening() async throws {
     let fileManager = FileManager.default
     let fixtureRoot = fileManager.temporaryDirectory
         .appendingPathComponent(
@@ -220,10 +220,13 @@ func workspaceAuthorityHardening() throws {
     // Live coordinated execution is carried by derived contexts, without
     // becoming part of Workspace's persisted authorization graph.
     let coordinator = StandardEditCoordinator()
+    _ = try await coordinator.read([baseURL])
+    let participant = try await coordinator.mutator(name: "workspace-bound")
+    let submission = WorkspaceCoordinatedSubmission(mutator: participant)
     let coordinatedContext = try workspace.context(
         execution: .init(
             io: .blocking,
-            mutations: .coordinated(coordinator)
+            mutations: .coordinated(submission)
         )
     )
     let coordinatedNested = try coordinatedContext.context(
@@ -232,8 +235,8 @@ func workspaceAuthorityHardening() throws {
     switch coordinatedNested.execution.mutations {
     case .coordinated(let inherited):
         try expect(
-            inherited === coordinator,
-            "workspace retargeting preserves coordinator identity"
+            inherited.id == submission.id,
+            "workspace retargeting preserves participant capability identity"
         )
     case .immediate:
         throw RegressionFailure.assertion(
@@ -249,6 +252,22 @@ func workspaceAuthorityHardening() throws {
         // Expected: coordinated mutation must use acquisitions and proposals.
     }
     try projectContext.execution.requireImmediateMutation()
+
+    var denied_coordinated_acquisition = false
+    do {
+        _ = try await submission.acquire(
+            in: coordinatedContext,
+            at: "base.txt",
+            scope: .file
+        )
+    } catch WorkspaceError.authorization_denied {
+        denied_coordinated_acquisition = true
+    }
+    try expect(
+        denied_coordinated_acquisition,
+        "read-only grants cannot acquire coordinated edits"
+    )
+    try await submission.stop()
 
     let nestedContext = try projectContext.context(
         atRootPath: "nested"
@@ -615,5 +634,5 @@ func workspaceAuthorityHardening() throws {
     )
 }
 
-try workspaceAuthorityHardening()
+try await workspaceAuthorityHardening()
 print("WorkspaceTests: passed")
