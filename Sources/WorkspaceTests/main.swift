@@ -219,10 +219,9 @@ func workspaceAuthorityHardening() async throws {
 
     // Live coordinated execution is carried by derived contexts, without
     // becoming part of Workspace's persisted authorization graph.
-    let coordinator = StandardEditCoordinator()
-    _ = try await coordinator.read([baseURL])
-    let participant = try await coordinator.mutator(name: "workspace-bound")
-    let submission = WorkspaceCoordinatedSubmission(mutator: participant)
+    let coordinator = StandardMutationCoordinator()
+    let participant = await coordinator.participant(name: "workspace-bound")
+    let submission = WorkspaceCoordinatedSubmission(participant: participant)
     let coordinatedContext = try workspace.context(
         execution: .init(
             io: .blocking,
@@ -253,21 +252,25 @@ func workspaceAuthorityHardening() async throws {
     }
     try projectContext.execution.requireImmediateMutation()
 
-    var denied_coordinated_acquisition = false
+    var denied_coordinated_submission = false
     do {
-        _ = try await submission.acquire(
-            in: coordinatedContext,
-            at: "base.txt",
-            scope: .file
-        )
+        let plan = try StandardMutationPlanner().plan([
+            .replace_text(.init(target: baseURL, content: "disallowed\n", policy: .existing))
+        ])
+        _ = try await submission.submit(plan, in: coordinatedContext)
     } catch WorkspaceError.authorization_denied {
-        denied_coordinated_acquisition = true
+        denied_coordinated_submission = true
     }
     try expect(
-        denied_coordinated_acquisition,
-        "read-only grants cannot acquire coordinated edits"
+        denied_coordinated_submission,
+        "read-only grants cannot submit coordinated mutations"
     )
-    try await submission.stop()
+    let pending_submissions = await coordinator.pending_submission_ids()
+    try expect(
+        pending_submissions.isEmpty,
+        "denied submission never acquires coordinator reservations"
+    )
+    try await submission.close()
 
     let nestedContext = try projectContext.context(
         atRootPath: "nested"

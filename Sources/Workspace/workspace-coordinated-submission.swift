@@ -1,122 +1,56 @@
 import Foundation
-import Path
-import Position
-import Readers
 import Writers
 
-/// A participant capability. The owning session retains StandardEditCoordinator;
-/// this wrapper never exposes seal/construct/write or the raw mutator.
+/// A Workspace-authorized participant of the process-owned mutation coordinator.
+/// No publication, rollback, journal, or bulk-cancellation authority is exposed.
 public struct WorkspaceCoordinatedSubmission: Sendable {
-    private let mutator: StandardEditMutator
+    private let participant: StandardMutationParticipant
 
-    public var id: UUID { mutator.id }
+    public var id: UUID { participant.id }
 
-    public init(mutator: StandardEditMutator) {
-        self.mutator = mutator
+    public init(participant: StandardMutationParticipant) {
+        self.participant = participant
     }
 
-    /// A scoped acquisition must be authorized for edits before a lease exists.
-    /// Insertion positions deliberately require whole-file .edit authority until
-    /// the Workspace content-scope policy models insertion boundaries explicitly.
-    public func acquire(
-        in workspace: WorkspaceContext,
-        at path: String,
-        scope: StandardEditScope,
-        sourceSnapshot: FileReadSnapshot? = nil
-    ) async throws -> WorkspaceEditAcquisition {
-        let authorizations: [WorkspaceAuthorization]
-        switch scope {
-        case .file, .insertions:
-            authorizations = [try workspace.authorize(
-                path,
-                capability: .edit,
-                sourceSnapshot: sourceSnapshot
-            )]
-        case .lines(let ranges):
-            guard !ranges.isEmpty else {
-                throw WorkspaceExecutionError.empty_coordinated_scope
-            }
-            authorizations = try ranges.map { range in
-                try workspace.authorize(
-                    path,
-                    capability: .edit,
-                    lineRange: range,
-                    sourceSnapshot: sourceSnapshot
+    /// Accept the *same* prepared plan used by the calling tool. Every source
+    /// and destination receives Workspace authorization before Writers admits
+    /// any reservations. This matches MutateFiles' existing write/read policy;
+    /// more granular .edit grants are a separate authorization-policy migration.
+    @discardableResult
+    public func submit(
+        _ plan: StandardMutationPlan,
+        in workspace: WorkspaceContext
+    ) async throws -> StandardMutationSubmission {
+        for planned in plan.entries {
+            switch planned.entry {
+            case .copy(let operation):
+                _ = try workspace.authorize(
+                    operation.source.path, capability: .read
+                )
+                _ = try workspace.authorize(
+                    operation.destination.path, capability: .write
+                )
+            case .move(let operation):
+                _ = try workspace.authorize(
+                    operation.source.path, capability: .write
+                )
+                _ = try workspace.authorize(
+                    operation.destination.path, capability: .write
+                )
+            case .create_text, .replace_text, .edit_text, .delete:
+                _ = try workspace.authorize(
+                    planned.target.path, capability: .write
                 )
             }
         }
-        guard let first = authorizations.first else {
-            throw WorkspaceExecutionError.empty_coordinated_scope
-        }
-        let receipt = try await mutator.acquire(
-            file: first.authorizedPath.absoluteURL,
-            scope: scope
-        )
-        return WorkspaceEditAcquisition(
-            receipt: receipt,
-            authorizations: authorizations,
-            rootIdentifier: workspace.rootIdentifier
-        )
+        return try await participant.submit(plan)
     }
 
-    /// Recheck authority at submission; the coordinator separately enforces
-    /// mutator ownership, acquisition scope, and snapshot compatibility.
-    @discardableResult
-    public func submit(
-        _ operation: StandardCoordinatedEditOperation,
-        acquisition: WorkspaceEditAcquisition,
-        in workspace: WorkspaceContext,
-        currentSourceSnapshot: FileReadSnapshot? = nil,
-        comment: String? = nil
-    ) async throws -> StandardEditMutation {
-        guard acquisition.rootIdentifier == workspace.rootIdentifier else {
-            throw WorkspaceExecutionError.coordinated_context_root_mismatch
-        }
-        guard acquisition.receipt.mutator_id == mutator.id else {
-            throw StandardEditCoordinationError.acquisition_not_owned(
-                acquisition.receipt.id
-            )
-        }
-        for authorization in acquisition.authorizations {
-            try workspace.requireCurrent(
-                authorization,
-                currentSourceSnapshot: currentSourceSnapshot
-            )
-        }
-        return try await mutator.submit(
-            acquisition: acquisition.receipt,
-            operation: operation,
-            comment: comment
-        )
+    public func withdraw(_ submission_id: UUID) async throws {
+        try await participant.withdraw(submission_id)
     }
 
-    public func stop() async throws {
-        try await mutator.stop()
-    }
-
-    public func abort(comment: String? = nil) async {
-        await mutator.abort(comment: comment)
-    }
-}
-
-/// A receipt is only created by an authorized acquisition in Workspace.
-public struct WorkspaceEditAcquisition: Sendable {
-    public var id: UUID { receipt.id }
-    public var file: URL { receipt.file }
-    public var scope: StandardEditScope { receipt.scope }
-    public var state: StandardEditAcquisitionState { receipt.state }
-
-    fileprivate let receipt: StandardEditAcquisition
-    fileprivate let authorizations: [WorkspaceAuthorization]
-    fileprivate let rootIdentifier: PathAccessRootIdentifier
-
-    fileprivate init(
-        receipt: StandardEditAcquisition,
-        authorizations: [WorkspaceAuthorization],
-        rootIdentifier: PathAccessRootIdentifier
-    ) {
-        self.receipt = receipt
-        self.authorizations = authorizations
-        self.rootIdentifier = rootIdentifier
+    public func close() async throws {
+        try await participant.close()
     }
 }
