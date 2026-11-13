@@ -4,12 +4,26 @@ import Writers
 /// A Workspace-authorized participant of the process-owned mutation coordinator.
 /// No publication, rollback, journal, or bulk-cancellation authority is exposed.
 public struct WorkspaceCoordinatedSubmission: Sendable {
+    /// Owner-granted publication of this participant's own submissions. The
+    /// owner decides who may publish on submit; without a grant, submissions
+    /// stay staged under their claims until the owner publishes them.
+    public typealias Publication =
+        @Sendable (UUID) async throws -> StandardMutationPublication?
+
     private let participant: StandardMutationParticipant
+    private let publication: Publication?
 
     public var id: UUID { participant.id }
 
-    public init(participant: StandardMutationParticipant) {
+    /// Whether submissions are published as soon as they are admitted.
+    public var publishesOnSubmit: Bool { publication != nil }
+
+    public init(
+        participant: StandardMutationParticipant,
+        publication: Publication? = nil
+    ) {
         self.participant = participant
+        self.publication = publication
     }
 
     /// Accept the *same* prepared plan used by the calling tool. Every source
@@ -44,6 +58,14 @@ public struct WorkspaceCoordinatedSubmission: Sendable {
             }
         }
         return try await participant.submit(plan)
+    }
+
+    /// Publishes an admitted submission when the owner granted it; nil when
+    /// the submission stays staged.
+    public func publish(
+        _ submission: StandardMutationSubmission
+    ) async throws -> StandardMutationPublication? {
+        try await publication?(submission.id)
     }
 
     public func withdraw(_ submission_id: UUID) async throws {
