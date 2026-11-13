@@ -124,7 +124,7 @@
       "location" : "https://github.com/leviouwendijk/Readers.git",
       "state" : {
         "branch" : "master",
-        "revision" : "e9b967413538320ef2cae3bcecfc2edc6f11933b"
+        "revision" : "9fad46ff279471563215cc1202cc4854d361a199"
       }
     },
     {
@@ -169,7 +169,7 @@
       "location" : "https://github.com/leviouwendijk/Writers.git",
       "state" : {
         "branch" : "master",
-        "revision" : "2cf401f2eaf3a2bba15e249a0b79d7e29442cdf7"
+        "revision" : "ef3e6f78ffc5876e8985be65cff206389de8f075"
       }
     }
   ],

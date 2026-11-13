@@ -68,6 +68,14 @@ public struct WorkspaceCoordinatedSubmission: Sendable {
         try await publication?(submission.id)
     }
 
+    /// This participant's own staged state of a resource, so reads see
+    /// changes it staged but has not published. nil: no staged change.
+    public func stagedState(
+        at url: URL
+    ) async throws -> StandardResourceState? {
+        try await participant.staged_state(at: url)
+    }
+
     public func withdraw(_ submission_id: UUID) async throws {
         try await participant.withdraw(submission_id)
     }
