@@ -139,6 +139,19 @@ public extension WorkspaceContext {
         return path.count >= base.count && Array(path.prefix(base.count)) == base
     }
 
+    /// The same workspace and execution, targeted at another root's top.
+    /// For an operation whose targets all lie in that root.
+    func context(
+        forRoot root: PathAccessRootIdentifier
+    ) throws -> WorkspaceContext {
+        try workspace.context(
+            at: ".",
+            rootIdentifier: root,
+            targeting: targeting,
+            execution: execution
+        )
+    }
+
     func context(
         atRootPath rawPath: String
     ) throws -> WorkspaceContext {
