@@ -835,7 +835,33 @@ func siblingRootAccess() throws {
     )
 }
 
+func fileScopedGrant() throws {
+    let rootURL = URL(fileURLWithPath: "/workspace-file-fixture", isDirectory: true)
+    let id = PathAccessRootIdentifier(rawValue: "files")
+    let workspace = try Workspace(
+        root: PathAccessRoot(id: id, label: "Files", scope: try PathAccessScope(root: rootURL), isDefault: true),
+        grants: [
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier("one-file"),
+                rootIdentifier: id,
+                scope: try .file("notes.md"),
+                capabilities: [.read]
+            ),
+        ]
+    )
+    do {
+        _ = try workspace.authorize("notes.md", rootIdentifier: id, capability: .read)
+    } catch {
+        try expect(false, "a file grant covers its file: \(error)")
+    }
+    try expect(
+        (try? workspace.authorize("other.md", rootIdentifier: id, capability: .read)) == nil,
+        "a file grant covers nothing else"
+    )
+}
+
 try await workspaceAuthorityHardening()
 try nestedRootGovernance()
 try siblingRootAccess()
+try fileScopedGrant()
 print("WorkspaceTests: passed")
