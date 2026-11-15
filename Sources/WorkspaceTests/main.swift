@@ -734,6 +734,23 @@ func nestedRootGovernance() throws {
         "a restriction on the nested root holds when the outer root names the path"
     )
 
+    _ = try workspace.restrict(
+        outerID,
+        denying: [
+            .denyBasename(
+                "outer-only.txt"
+            ),
+        ]
+    )
+    try expect(
+        (try? workspace.authorize(
+            "d/outer-only.txt",
+            rootIdentifier: innerID,
+            capability: .read
+        )) == nil,
+        "an outer root's deny rule also holds inside a nested root"
+    )
+
     var allowRejected = false
     do {
         _ = try workspace.restrict(
