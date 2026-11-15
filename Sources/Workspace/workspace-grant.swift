@@ -192,6 +192,18 @@ public struct WorkspaceScope:
         )
     }
 
+    /// Exactly one file, `relativePath` under the root.
+    public static func file(
+        _ relativePath: String
+    ) throws -> Self {
+        try .selection(
+            PathSelection(
+                relativePath.split(separator: "/").map { .literal(String($0)) },
+                terminalHint: .file
+            )
+        )
+    }
+
     public static func resolved(
         _ selection: PathSelection,
         sourceSnapshot: FileReadSnapshot
