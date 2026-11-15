@@ -637,5 +637,140 @@ func workspaceAuthorityHardening() async throws {
     )
 }
 
+func nestedRootGovernance() throws {
+    let outerURL = URL(
+        fileURLWithPath: "/workspace-nesting-fixture/outer",
+        isDirectory: true
+    )
+    let innerURL = outerURL.appendingPathComponent(
+        "inner",
+        isDirectory: true
+    )
+    let outerID = PathAccessRootIdentifier(
+        rawValue: "outer"
+    )
+    let innerID = PathAccessRootIdentifier(
+        rawValue: "inner"
+    )
+    var workspace = try Workspace(
+        roots: [
+            PathAccessRoot(
+                id: innerID,
+                label: "Inner",
+                scope: try PathAccessScope(
+                    root: innerURL
+                ),
+                isDefault: true
+            ),
+            PathAccessRoot(
+                id: outerID,
+                label: "Outer",
+                scope: try PathAccessScope(
+                    root: outerURL
+                )
+            ),
+        ],
+        defaultRootIdentifier: innerID,
+        grants: [
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier(
+                    "inner-all"
+                ),
+                rootIdentifier: innerID,
+                capabilities: Set(WorkspaceCapability.allCases)
+            ),
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier(
+                    "outer-read"
+                ),
+                rootIdentifier: outerID,
+                capabilities: [
+                    .read,
+                ]
+            ),
+        ]
+    )
+
+    let throughOuter = try workspace.authorize(
+        "inner/a.txt",
+        rootIdentifier: outerID,
+        capability: .write
+    )
+    try expect(
+        throughOuter.authorizedPath.rootIdentifier == innerID
+            && throughOuter.authorizedPath.presentationPath == "a.txt",
+        "a path inside a nested root is governed by that root, whichever root named it"
+    )
+
+    var outerWriteDenied = false
+    do {
+        _ = try workspace.authorize(
+            "b.txt",
+            rootIdentifier: outerID,
+            capability: .write
+        )
+    } catch WorkspaceError.authorization_denied {
+        outerWriteDenied = true
+    }
+    try expect(
+        outerWriteDenied,
+        "outside the nested root, the outer root's grants apply"
+    )
+
+    _ = try workspace.restrict(
+        innerID,
+        denying: [
+            .denyBasename(
+                "secret.txt"
+            ),
+        ]
+    )
+    try expect(
+        (try? workspace.authorize(
+            "inner/secret.txt",
+            rootIdentifier: outerID,
+            capability: .read
+        )) == nil,
+        "a restriction on the nested root holds when the outer root names the path"
+    )
+
+    var allowRejected = false
+    do {
+        _ = try workspace.restrict(
+            outerID,
+            denying: [
+                .allowBasename(
+                    "secret.txt"
+                ),
+            ]
+        )
+    } catch WorkspaceError.restriction_must_deny {
+        allowRejected = true
+    }
+    try expect(
+        allowRejected,
+        "a restriction can never widen access"
+    )
+
+    let beforeDefault = workspace.revision
+    _ = try workspace.makeDefault(
+        outerID
+    )
+    try expect(
+        workspace.defaultRootIdentifier == outerID
+            && workspace.revision > beforeDefault,
+        "changing the default root advances the revision"
+    )
+    let relative = try workspace.authorize(
+        "inner/c.txt",
+        capability: .read
+    )
+    try expect(
+        relative.authorizedPath.rootIdentifier == innerID,
+        "relative paths resolve against the default root, then the governing root applies"
+    )
+}
+
 try await workspaceAuthorityHardening()
+try nestedRootGovernance()
 print("WorkspaceTests: passed")

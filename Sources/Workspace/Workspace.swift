@@ -537,6 +537,68 @@ public extension Workspace {
         return candidateRevision
     }
 
+    /// The root that relative paths resolve against when none is named.
+    @discardableResult
+    mutating func makeDefault(
+        _ identifier: PathAccessRootIdentifier
+    ) throws -> WorkspaceRevision {
+        guard paths.roots[identifier] != nil else {
+            throw WorkspaceError.root_not_found(
+                identifier
+            )
+        }
+        guard paths.defaultRootIdentifier != identifier else {
+            return revision
+        }
+
+        let candidateRevision = try revision.advanced()
+        var candidatePaths = paths
+
+        for rootIdentifier in Array(candidatePaths.roots.keys) {
+            candidatePaths.roots[rootIdentifier]?.isDefault = rootIdentifier == identifier
+        }
+        candidatePaths.defaultRootIdentifier = identifier
+
+        paths = candidatePaths
+        revision = candidateRevision
+
+        return candidateRevision
+    }
+
+    /// Narrows a root's policy. Only deny rules are accepted, and they take
+    /// precedence over the root's existing rules, so this can never widen
+    /// access.
+    @discardableResult
+    mutating func restrict(
+        _ identifier: PathAccessRootIdentifier,
+        denying rules: [PathAccessRule]
+    ) throws -> WorkspaceRevision {
+        guard let root = paths.roots[identifier] else {
+            throw WorkspaceError.root_not_found(
+                identifier
+            )
+        }
+        guard rules.allSatisfy(\.decision.isDenied) else {
+            throw WorkspaceError.restriction_must_deny(
+                identifier
+            )
+        }
+        guard !rules.isEmpty else {
+            return revision
+        }
+
+        let candidateRevision = try revision.advanced()
+
+        paths.roots[identifier] = root.withPolicy(
+            root.scope.policy.prepending(
+                rules
+            )
+        )
+        revision = candidateRevision
+
+        return candidateRevision
+    }
+
     @discardableResult
     mutating func revalidate(
         at date: Date = Date()
