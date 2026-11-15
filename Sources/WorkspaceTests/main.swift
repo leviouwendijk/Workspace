@@ -788,6 +788,54 @@ func nestedRootGovernance() throws {
     )
 }
 
+func siblingRootAccess() throws {
+    let projectURL = URL(fileURLWithPath: "/workspace-sibling-fixture/project", isDirectory: true)
+    let notesURL = URL(fileURLWithPath: "/workspace-sibling-fixture/notes", isDirectory: true)
+    let projectID = PathAccessRootIdentifier(rawValue: "project")
+    let notesID = PathAccessRootIdentifier(rawValue: "notes")
+    let workspace = try Workspace(
+        roots: [
+            PathAccessRoot(id: projectID, label: "Project", scope: try PathAccessScope(root: projectURL), isDefault: true),
+            PathAccessRoot(id: notesID, label: "Notes", scope: try PathAccessScope(root: notesURL)),
+        ],
+        defaultRootIdentifier: projectID,
+        grants: [
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier("project-all"),
+                rootIdentifier: projectID,
+                capabilities: Set(WorkspaceCapability.allCases)
+            ),
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier("notes-read"),
+                rootIdentifier: notesID,
+                capabilities: [.list, .read, .scan]
+            ),
+        ]
+    )
+    let context = try workspace.context(execution: .init(io: .blocking, mutations: .immediate))
+
+    let note = try context.authorize(notesURL.appendingPathComponent("a.md").path, capability: .read)
+    try expect(
+        note.authorizedPath.rootIdentifier == notesID
+            && note.authorizedPath.presentationPath == notesURL.appendingPathComponent("a.md").path,
+        "an absolute path in another root is authorized through that root and shown absolute"
+    )
+    try expect(
+        (try? context.authorize("../notes/a.md", capability: .write)) == nil,
+        "another root's grants still apply: a read-only root refuses writes"
+    )
+    try expect(
+        (try? context.authorize("/workspace-sibling-fixture/other/a.md", capability: .read)) == nil,
+        "a path in no root is refused"
+    )
+    let own = try context.authorize("b.txt", capability: .read)
+    try expect(
+        own.authorizedPath.presentationPath == "b.txt",
+        "paths in the context's own root are unchanged"
+    )
+}
+
 try await workspaceAuthorityHardening()
 try nestedRootGovernance()
+try siblingRootAccess()
 print("WorkspaceTests: passed")

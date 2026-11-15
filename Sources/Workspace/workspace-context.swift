@@ -92,19 +92,51 @@ public extension WorkspaceContext {
             relativeTo: baseURL
         )
         .standardizedFileURL
+        // A path outside this context's root goes through the innermost
+        // root that contains it, under that root's grants and policy.
+        let root = Self.contains(rootURL, targetURL)
+            ? rootIdentifier
+            : containingRoot(of: targetURL) ?? rootIdentifier
         let targetPath = try workspace.paths.scope(
             targetURL,
-            rootIdentifier: rootIdentifier
+            rootIdentifier: root
         )
 
-        return try workspace.authorize(
-            rootIdentifier: rootIdentifier,
+        let authorization = try workspace.authorize(
+            rootIdentifier: root,
             path: targetPath,
             capability: capability,
             lineRange: lineRange,
             sourceSnapshot: sourceSnapshot,
             at: date
         )
+        guard root != rootIdentifier else {
+            return authorization
+        }
+        // Relative to another root, a presentation path would read as one
+        // of this root's; the absolute path names it unambiguously.
+        return authorization.presenting(
+            authorization.authorizedPath.absoluteURL.path
+        )
+    }
+
+    /// The innermost other root containing `url`, if any.
+    func containingRoot(
+        of url: URL
+    ) -> PathAccessRootIdentifier? {
+        roots
+            .filter { Self.contains($0.scope.rootURL, url) }
+            .max { $0.scope.rootURL.pathComponents.count < $1.scope.rootURL.pathComponents.count }?
+            .id
+    }
+
+    static func contains(
+        _ root: URL,
+        _ url: URL
+    ) -> Bool {
+        let base = root.standardizedFileURL.pathComponents
+        let path = url.standardizedFileURL.pathComponents
+        return path.count >= base.count && Array(path.prefix(base.count)) == base
     }
 
     func context(

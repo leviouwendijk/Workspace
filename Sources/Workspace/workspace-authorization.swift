@@ -30,4 +30,18 @@ public struct WorkspaceAuthorization:
         self.grantIdentifier = grantIdentifier
         self.revision = revision
     }
+
+    /// The same authorization, its path shown as `presentation`.
+    func presenting(
+        _ presentation: String
+    ) -> WorkspaceAuthorization {
+        .init(
+            authorizedPath: authorizedPath.presenting(presentation),
+            capability: capability,
+            lineRange: lineRange,
+            sourceSnapshot: sourceSnapshot,
+            grantIdentifier: grantIdentifier,
+            revision: revision
+        )
+    }
 }
