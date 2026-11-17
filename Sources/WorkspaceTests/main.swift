@@ -860,8 +860,74 @@ func fileScopedGrant() throws {
     )
 }
 
+func symlinkPolicy() throws {
+    let fileManager = FileManager.default
+    let fixture = fileManager.temporaryDirectory
+        .appendingPathComponent("workspace-symlinks-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fileManager.removeItem(at: fixture) }
+    let projectURL = fixture.appendingPathComponent("project", isDirectory: true)
+    let notesURL = fixture.appendingPathComponent("notes", isDirectory: true)
+    let outsideURL = fixture.appendingPathComponent("outside", isDirectory: true)
+    for url in [projectURL.appendingPathComponent("sub"), notesURL, outsideURL] {
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    try "sub\n".write(to: projectURL.appendingPathComponent("sub/a.txt"), atomically: true, encoding: .utf8)
+    try "note\n".write(to: notesURL.appendingPathComponent("n.md"), atomically: true, encoding: .utf8)
+    try "secret\n".write(to: outsideURL.appendingPathComponent("s.txt"), atomically: true, encoding: .utf8)
+    // inner -> sub (relative, within the root); evil -> outside; toNotes -> notes.
+    try fileManager.createSymbolicLink(atPath: projectURL.appendingPathComponent("inner").path, withDestinationPath: "sub")
+    try fileManager.createSymbolicLink(at: projectURL.appendingPathComponent("evil"), withDestinationURL: outsideURL)
+    try fileManager.createSymbolicLink(at: projectURL.appendingPathComponent("toNotes"), withDestinationURL: notesURL)
+
+    let projectID = PathAccessRootIdentifier(rawValue: "project")
+    let notesID = PathAccessRootIdentifier(rawValue: "notes")
+    var workspace = try Workspace(
+        roots: [
+            PathAccessRoot(id: projectID, label: "Project", scope: try PathAccessScope(root: projectURL), isDefault: true),
+            PathAccessRoot(id: notesID, label: "Notes", scope: try PathAccessScope(root: notesURL)),
+        ],
+        defaultRootIdentifier: projectID,
+        grants: [
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier("project-all"),
+                rootIdentifier: projectID,
+                capabilities: Set(WorkspaceCapability.allCases)
+            ),
+            try WorkspaceGrant(
+                id: try WorkspaceGrantIdentifier("notes-read"),
+                rootIdentifier: notesID,
+                capabilities: [.list, .read, .scan]
+            ),
+        ]
+    )
+    func allows(_ path: String, _ capability: WorkspaceCapability = .read) -> Bool {
+        (try? workspace.authorize(path, rootIdentifier: projectID, capability: capability)) != nil
+    }
+
+    try expect(workspace.symlinks == .roots, "symlinks default to roots")
+    try expect(allows("sub/a.txt"), "roots: a path without links")
+    try expect(allows("inner/a.txt"), "roots: a link within the root")
+    try expect(!allows("evil/s.txt"), "roots: a link out of every root is refused")
+    try expect(!allows("evil/new.txt", .write), "roots: a missing leaf behind an escaping link is refused")
+    try expect(allows("toNotes/n.md"), "roots: a link into another root")
+    try expect(!allows("toNotes/n.md", .write), "roots: the destination root's grants apply")
+    try expect(allows("missing/new.txt", .write), "roots: a missing path has no links")
+
+    workspace.symlinks = .never
+    try expect(allows("sub/a.txt"), "never: a path without links")
+    try expect(!allows("inner/a.txt"), "never: a link within the root is refused")
+
+    workspace.symlinks = .anywhere
+    try expect(allows("evil/s.txt"), "anywhere: links are not checked")
+
+    workspace.symlinks = .never
+    let decoded = try JSONDecoder().decode(Workspace.self, from: JSONEncoder().encode(workspace))
+    try expect(decoded.symlinks == .never, "the policy survives encoding")
+}
+
 try await workspaceAuthorityHardening()
 try nestedRootGovernance()
 try siblingRootAccess()
 try fileScopedGrant()
+try symlinkPolicy()
 print("WorkspaceTests: passed")

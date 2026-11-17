@@ -43,7 +43,8 @@ public struct Workspace: Sendable, Codable, Hashable {
                 )
             },
             registrations: [],
-            revision: .initial
+            revision: .initial,
+            symlinks: .roots
         )
     }
 
@@ -52,7 +53,8 @@ public struct Workspace: Sendable, Codable, Hashable {
         defaultRootIdentifier: PathAccessRootIdentifier?,
         grants: [WorkspaceGrantRecord],
         registrations: [WorkspaceRegistrationRecord],
-        revision: WorkspaceRevision
+        revision: WorkspaceRevision,
+        symlinks: PathSymlinkPolicy
     ) throws {
         guard !roots.isEmpty else {
             throw WorkspaceError.empty_roots
@@ -78,7 +80,8 @@ public struct Workspace: Sendable, Codable, Hashable {
 
         let paths = PathAccessController(
             roots: roots,
-            defaultRootIdentifier: defaultRootIdentifier
+            defaultRootIdentifier: defaultRootIdentifier,
+            symlinks: symlinks
         )
         var mappedGrants: [WorkspaceGrantIdentifier: WorkspaceGrantRecord] = [:]
         var mappedRegistrations: [WorkspaceRegistration: WorkspaceRegistrationRecord] = [:]
@@ -144,6 +147,7 @@ public struct Workspace: Sendable, Codable, Hashable {
         case grants
         case registrations
         case revision
+        case symlinks
     }
 
     public init(
@@ -173,7 +177,11 @@ public struct Workspace: Sendable, Codable, Hashable {
             revision: container.decode(
                 WorkspaceRevision.self,
                 forKey: .revision
-            )
+            ),
+            symlinks: container.decodeIfPresent(
+                PathSymlinkPolicy.self,
+                forKey: .symlinks
+            ) ?? .roots
         )
     }
 
@@ -208,6 +216,10 @@ public struct Workspace: Sendable, Codable, Hashable {
             revision,
             forKey: .revision
         )
+        try container.encode(
+            symlinks,
+            forKey: .symlinks
+        )
     }
 }
 
@@ -224,6 +236,16 @@ public extension Workspace {
 
     var defaultRootIdentifier: PathAccessRootIdentifier? {
         paths.defaultRootIdentifier
+    }
+
+    /// Which symlinks an authorized path may pass through. Default `.roots`.
+    var symlinks: PathSymlinkPolicy {
+        get {
+            paths.symlinks
+        }
+        set {
+            paths.symlinks = newValue
+        }
     }
 
     func root(
@@ -754,6 +776,13 @@ public extension Workspace {
             supplied: sourceSnapshot,
             authorizedPath: currentPath
         )
+
+        try requireFollowedGrants(
+            currentPath,
+            capability: authorization.capability,
+            lineRange: authorization.lineRange,
+            at: date
+        )
     }
 
     func reauthorize(
@@ -817,6 +846,13 @@ private extension Workspace {
         sourceSnapshot: FileReadSnapshot?,
         at date: Date
     ) throws -> WorkspaceAuthorization {
+        try requireFollowedGrants(
+            authorizedPath,
+            capability: capability,
+            lineRange: lineRange,
+            at: date
+        )
+
         var requiresSnapshot = false
         var staleSnapshot = false
 
@@ -873,6 +909,37 @@ private extension Workspace {
             path: authorizedPath.presentationPath,
             capability: capability
         )
+    }
+
+    /// A symlink's destination is reached with the capability too: it needs
+    /// an active grant of its own root, as if named directly.
+    func requireFollowedGrants(
+        _ authorizedPath: AuthorizedPath,
+        capability: WorkspaceCapability,
+        lineRange: LineRange?,
+        at date: Date
+    ) throws {
+        for destination in authorizedPath.followed {
+            let granted = grantRecords.values.contains { record in
+                record.status(at: date) == .active
+                    && record.grant.rootIdentifier == destination.rootIdentifier
+                    && record.grant.capabilities.contains(capability)
+                    && record.grant.scope.matches(
+                        destination.path,
+                        lineRange: lineRange
+                    )
+            }
+
+            guard granted else {
+                throw WorkspaceError.authorization_denied(
+                    root: destination.rootIdentifier,
+                    path: destination.path.presentingRelative(
+                        filetype: true
+                    ),
+                    capability: capability
+                )
+            }
+        }
     }
 
     static func requireSourceSnapshot(

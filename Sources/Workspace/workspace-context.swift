@@ -54,6 +54,10 @@ public extension WorkspaceContext {
         workspace.defaultRootIdentifier
     }
 
+    var symlinks: PathSymlinkPolicy {
+        workspace.symlinks
+    }
+
     var grants: [WorkspaceGrant] {
         workspace.grants
     }
