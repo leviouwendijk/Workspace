@@ -14,12 +14,6 @@ let package = Package(
                 "Workspace",
             ]
         ),
-        .executable(
-            name: "worktest",
-            targets: [
-                "WorkspaceTests",
-            ]
-        ),
     ],
     dependencies: [
         .package(
@@ -82,32 +76,6 @@ let package = Package(
                 .product(
                     name: "Schema",
                     package: "Schema"
-                ),
-            ]
-        ),
-        .executableTarget(
-            name: "WorkspaceTests",
-            dependencies: [
-                "Workspace",
-                .product(
-                    name: "Writers",
-                    package: "Writers"
-                ),
-                .product(
-                    name: "Path",
-                    package: "Path"
-                ),
-                .product(
-                    name: "Position",
-                    package: "Position"
-                ),
-                .product(
-                    name: "Selection",
-                    package: "Selection"
-                ),
-                .product(
-                    name: "Readers",
-                    package: "Readers"
                 ),
             ]
         ),
